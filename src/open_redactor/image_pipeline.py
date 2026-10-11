@@ -152,25 +152,33 @@ def run_image_pipeline(
 
     # Detection clients read a file path and the API expects PNG or JPEG
     # bytes, so HEIC inputs are transcoded to a temp PNG for detection
-    # only. Redaction applies to the decoded original frame and the
-    # output keeps the HEIC format.
+    # only. Rotated photos of any format take the same path, because
+    # detection has to run on the upright frame the redaction uses.
+    # Redaction applies to the decoded original frame and the output
+    # keeps the source format.
     segment_path = input_path
     _detect_tmp = None
-    if input_path.suffix.lower() in HEIC_SUFFIXES:
+    if input_path.suffix.lower() in HEIC_SUFFIXES or _exif_orientation(input_path) != 1:
         import tempfile
 
-        _detect_tmp = tempfile.TemporaryDirectory(prefix="open-redactor-heic-")
+        _detect_tmp = tempfile.TemporaryDirectory(prefix="open-redactor-detect-")
         segment_path = Path(_detect_tmp.name) / "detect.png"
         cv2.imwrite(str(segment_path), frame)
 
     resolved_backend = backend or ("local" if local else "api")
     resolved_provider = provider or ("grounding-sam" if resolved_backend == "local" else "sam")
+    if resolved_provider == "yunet":
+        resolved_backend = "local"
     client: object
     if resolved_backend == "local":
         if resolved_provider == "grounding-sam":
             from .local_gsam import LocalGroundingSamClient
 
             client = LocalGroundingSamClient()
+        elif resolved_provider == "yunet":
+            from .yunet import YunetFaceClient
+
+            client = YunetFaceClient()
         else:
             client = LocalSamStub()
     else:

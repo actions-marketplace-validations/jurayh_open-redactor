@@ -43,7 +43,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--keep-metadata", action="store_true", help="Keep source metadata (EXIF and container tags) in the output instead of stripping it")
     p.add_argument("--transcript", default=None, help="Use a Whisper JSON transcript with word timings for the speech layer instead of transcribing")
     p.add_argument("--pitch-factor", type=float, default=0.8, help="Pitch multiplier for --audio pitch. Below 1 deepens, above 1 raises")
-    p.add_argument("--provider", choices=["sam", "grounding-sam"], default=None, help="Model provider: SAM via API or hosted, or Grounding SAM locally")
+    p.add_argument("--provider", choices=["sam", "grounding-sam", "yunet"], default=None, help="Model provider: SAM via API or hosted, Grounding SAM locally, or YuNet fast local faces")
     p.add_argument("--backend", choices=["api", "hosted", "local"], default=None, help="Where SAM runs: Meta Model API, your own hosted endpoint, or local open weights")
     p.add_argument("--endpoint", default=None, help="Responses API endpoint for the hosted backend, or set OPEN_REDACTOR_ENDPOINT")
     p.add_argument("--ui", action="store_true", help="Launch the drag and drop local web page instead of processing a file")

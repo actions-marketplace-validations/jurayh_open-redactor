@@ -547,11 +547,16 @@ def run_pipeline(
     # --local stays as an alias for the local backend.
     resolved_backend = backend or ("local" if local else "api")
     resolved_provider = provider or ("grounding-sam" if resolved_backend == "local" else "sam")
+    if resolved_provider == "yunet":
+        resolved_backend = "local"
     client: object
     if resolved_backend == "local":
         if resolved_provider == "grounding-sam":
             from .local_gsam import LocalGroundingSamClient
             client = LocalGroundingSamClient()
+        elif resolved_provider == "yunet":
+            from .yunet import YunetFaceClient
+            client = YunetFaceClient()
         else:
             client = LocalSamStub()
     elif resolved_backend in ("api", "hosted"):

@@ -123,6 +123,12 @@ pip install "open-redactor[local]"
 open-redactor clip.mp4 --backend local
 ```
 
+**Fast faces.** When the job is just faces, `--provider yunet` runs OpenCV's YuNet detector locally in milliseconds per frame. No torch stack, no API key, only a small model file fetched once and verified against a pinned hash. Faces only, stated plainly: other phrases are skipped with a note.
+
+```bash
+open-redactor clip.mp4 --provider yunet
+```
+
 Pixel-perfect SAM masks decode through @meta-sam/parser when Node is present, with a box fallback that still pads and carries safely.
 
 ## Plug it into your stack
@@ -230,7 +236,7 @@ open-redactor input.mp4 [--output out.mp4]
   --audio keep|mute|pitch          --pitch-factor 0.8
   --speech-pii                      --transcript transcript.json
   --keep-metadata
-  --backend api|hosted|local        --provider sam|grounding-sam
+  --backend api|hosted|local        --provider sam|grounding-sam|yunet
   --endpoint URL                    --api-key-env MODEL_API_KEY
   --no-cache                        --batch            --ui
 ```
@@ -269,6 +275,7 @@ You need ffmpeg and ffprobe on your PATH. From source: clone this repo and `pip 
 - `pipeline.py` and `image_pipeline.py` ingest, detection, padding, rendering, reports
 - `sam_client.py` the SAM 3.1 API and hosted client with caching
 - `local_gsam.py` Grounding DINO plus SAM 2 local provider with IoU tracking
+- `yunet.py` YuNet fast local face provider, the basic tier
 - `masks.py` padding, carry-forward, smoothing, and coverage reports
 - `pii.py`, `codes.py` the text and codes layers
 - `analytics.py`, `replace.py` severity, summaries, shadow audits, and generated stand-ins

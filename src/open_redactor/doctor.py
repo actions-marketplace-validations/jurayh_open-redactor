@@ -133,6 +133,28 @@ def run_checks(api_key_env: str = "MODEL_API_KEY") -> List[Tuple[str, Check]]:
         "local transcription available for spoken PII muting" if _importable("faster_whisper") else "not installed, --speech-pii will ask for the extra or a transcript file",
         'pip install "open-redactor[speech]"',
     )))
+    yunet_ok = False
+    yunet_note = "cv2.FaceDetectorYN unavailable in this OpenCV build"
+    try:
+        import cv2
+
+        from .yunet import model_cache_path
+
+        if hasattr(cv2, "FaceDetectorYN"):
+            yunet_ok = True
+            yunet_note = (
+                "fast face provider ready, model cached"
+                if model_cache_path().exists()
+                else "fast face provider ready, model downloads on first use"
+            )
+    except Exception:
+        pass
+    checks.append((OPTIONAL, (
+        "Fast face provider (YuNet)",
+        yunet_ok,
+        yunet_note,
+        "use --provider yunet, no install needed beyond the base package",
+    )))
     server_ok = _importable("fastapi") and _importable("uvicorn")
     checks.append((OPTIONAL, (
         "HTTP server",
