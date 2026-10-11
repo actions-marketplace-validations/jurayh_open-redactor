@@ -348,6 +348,13 @@
             <p>One pass found 28 people and 14 faces in this market photo. The third panel shows the review flow at work. Pick one tracked group, keep it visible, and leave everyone else covered.</p>
           </div>
         </article>
+        <article class="panel">
+          <img src="assets/metadata-demo.jpg" alt="A car photo shown with its EXIF readout of GPS, time, and device, then as a redacted copy with no metadata" loading="lazy">
+          <div class="panel-body">
+            <h3>The layer you cannot see</h3>
+            <p>A perfectly blurred photo can still carry GPS coordinates, an exact timestamp, and the phone model inside the file. Every run inspects the source, strips that data from the output, verifies the result, and reports what it found.</p>
+          </div>
+        </article>
         <div class="grid-2">
           <article class="card image-card">
             <img src="assets/car-plate-panel.jpg" alt="A car shown before and after license plate pixelation" loading="lazy">
@@ -380,6 +387,7 @@
           <article class="card"><div class="icon">▦</div><h3>Codes</h3><p>QR codes and barcodes can carry payment links, Wi-Fi passwords, and contact cards. Code regions get an opaque fill before any blur.</p></article>
           <article class="card"><div class="icon">⌖</div><h3>Location clues</h3><p>Signs, house numbers, mailboxes, and plates are often the detail that turns a nice photo into a map pin.</p></article>
           <article class="card"><div class="icon">♪</div><h3>Voices and spoken secrets</h3><p>Keep the audio, mute it, or pitch shift it. And with the speech layer, a dictated phone number, card number, or email is found in the transcript and muted in place.</p></article>
+          <article class="card"><div class="icon">◍</div><h3>The invisible layer</h3><p>GPS coordinates, timestamps, and device details ride inside photo EXIF and video tags. Every run inspects the source, strips them from the output, and reports what it found.</p></article>
         </div>
       </div>
     </section>
