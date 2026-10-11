@@ -46,6 +46,29 @@ def read_photo(path: Path) -> np.ndarray:
     raise ValueError(f"Could not read image: {path}")
 
 
+def _reattach_exif(source: Path, output: Path) -> None:
+    """Copy source EXIF onto a written photo for --keep-metadata.
+
+    The decoded frame was already transposed upright on read, so the
+    Orientation tag is dropped: keeping it would rotate the photo a
+    second time in viewers.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(source) as src_img:
+            exif = src_img.getexif()
+            if not exif:
+                return
+            if 274 in exif:
+                del exif[274]
+            exif_bytes = exif.tobytes()
+        with Image.open(output) as out_img:
+            out_img.save(output, exif=exif_bytes)
+    except Exception as exc:
+        print(f"Metadata: could not copy EXIF onto the output ({exc})")
+
+
 def write_photo(path: Path, frame_bgr: np.ndarray) -> None:
     """Write a BGR frame, keeping the input format. HEIC and HEIF outputs
     are encoded through Pillow with pillow-heif registered."""
@@ -79,6 +102,7 @@ def run_image_pipeline(
     codes: bool = False,
     keep_tracks: Optional[List[str]] = None,
     exclude_tracks: Optional[List[str]] = None,
+    keep_metadata: bool = False,
 ) -> Dict[str, object]:
     frame = read_photo(input_path)
     height, width = frame.shape[:2]
@@ -220,6 +244,25 @@ def run_image_pipeline(
     if _detect_tmp is not None:
         _detect_tmp.cleanup()
     print(f"Wrote: {output_path}")
+
+    # Metadata: decoded frames carry no source tags, so the output is
+    # clean by construction. Inspect anyway, report the findings, and
+    # only carry tags over when the user asked to keep them.
+    from .metadata import inspect_metadata, labels as metadata_labels
+
+    meta_findings = inspect_metadata(input_path)
+    found_labels = metadata_labels(meta_findings)
+    metadata_info = {"found": found_labels, "stripped": bool(meta_findings) and not keep_metadata}
+    if meta_findings:
+        if keep_metadata:
+            _reattach_exif(input_path, output_path)
+            print(f"Metadata: {', '.join(found_labels)} found in the source and kept in the output by request")
+        else:
+            survivors = [l for l in metadata_labels(inspect_metadata(output_path)) if l in found_labels]
+            if survivors:
+                print(f"Metadata warning: {', '.join(survivors)} still present in the output")
+            else:
+                print(f"Metadata: {', '.join(found_labels)} found in the source, stripped from the output")
     if not sam_sources:
         sam_mask_source = "none"
     elif all(s == "pixel" for s in sam_sources):
@@ -228,4 +271,4 @@ def run_image_pipeline(
         sam_mask_source = "box"
     else:
         sam_mask_source = "mixed"
-    return {"input": str(input_path), "output": str(output_path), "objects": total_objects, "photo": True, "kept_visible": left_visible, "sam_mask_source": sam_mask_source}
+    return {"input": str(input_path), "output": str(output_path), "objects": total_objects, "photo": True, "kept_visible": left_visible, "sam_mask_source": sam_mask_source, "metadata": metadata_info}

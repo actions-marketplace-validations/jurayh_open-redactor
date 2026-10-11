@@ -52,6 +52,8 @@ open-redactor clip.mp4 --preset family --mode pixelate  # re-render free, detect
 
 **Voices.** Audio stays, gets muted, or gets pitch shifted so speech remains but the speaker does not. And with `--speech-pii`, spoken card numbers, Social Security numbers, phone numbers, and emails are found in the transcript and muted in place, verified with the same Luhn and issuing rules as printed text.
 
+**Metadata.** A blurred photo can still carry GPS coordinates, timestamps, and device details in its EXIF, and a video can carry the same in its container tags. Every run inspects the source, strips that data from the output, and reports what it found, or keeps it only when you ask with `--keep-metadata`.
+
 ## Three ways to hide something
 
 | Mode | What you see | Reach for it when |
@@ -227,6 +229,7 @@ open-redactor input.mp4 [--output out.mp4]
   --keep TRACK (repeatable)         --exclude TRACK (repeatable)
   --audio keep|mute|pitch          --pitch-factor 0.8
   --speech-pii                      --transcript transcript.json
+  --keep-metadata
   --backend api|hosted|local        --provider sam|grounding-sam
   --endpoint URL                    --api-key-env MODEL_API_KEY
   --no-cache                        --batch            --ui

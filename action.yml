@@ -41,6 +41,10 @@ inputs:
     description: Also transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails
     required: false
     default: 'false'
+  keep-metadata:
+    description: Keep source metadata (EXIF and container tags) in outputs instead of stripping it
+    required: false
+    default: 'false'
   fail-on:
     description: For audit task, fail when this severity or higher is found
     required: false
@@ -105,6 +109,7 @@ runs:
         INPUT_EXCLUDE: ${{ inputs.exclude }}
         INPUT_SENSITIVE: ${{ inputs.sensitive }}
         INPUT_SPEECH_PII: ${{ inputs.speech-pii }}
+        INPUT_KEEP_METADATA: ${{ inputs.keep-metadata }}
         INPUT_FAIL_ON: ${{ inputs.fail-on }}
         INPUT_BACKEND: ${{ inputs.backend }}
         INPUT_ENDPOINT: ${{ inputs.endpoint }}
@@ -149,6 +154,9 @@ runs:
         fi
         if [[ "$INPUT_SPEECH_PII" == "true" ]]; then
           args+=(--speech-pii)
+        fi
+        if [[ "$INPUT_KEEP_METADATA" == "true" ]]; then
+          args+=(--keep-metadata)
         fi
         args+=(--backend "$INPUT_BACKEND")
         if [[ -n "$INPUT_ENDPOINT" ]]; then

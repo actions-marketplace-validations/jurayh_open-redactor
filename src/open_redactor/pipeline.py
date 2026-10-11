@@ -48,7 +48,7 @@ def ensure_mp4_for_api(path: Path, tmp_dir: Path) -> Path:
     if path.suffix.lower() == ".mp4":
         return path
     out = tmp_dir / (path.stem + ".api.mp4")
-    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(path), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", str(out)]
+    cmd = ["ffmpeg", "-y", "-v", "error", "-i", str(path), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an", "-map_metadata", "-1", str(out)]
     subprocess.check_call(cmd)
     print(f"Transcoded {path.suffix} input to MP4 for the SAM API: {out.name}")
     return out
@@ -354,6 +354,7 @@ def render_video(
                 "ffmpeg", "-y", "-v", "error",
                 "-i", str(tmp_path),
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                "-map_metadata", "-1",
                 str(output_path),
             ]
         elif afilter or span_filter:
@@ -371,6 +372,7 @@ def render_video(
                 "-map", "0:v:0",
                 "-map", "1:a:0",
                 "-shortest",
+                "-map_metadata", "-1",
                 str(output_path),
             ]
         else:
@@ -383,6 +385,7 @@ def render_video(
                 "-map", "0:v:0",
                 "-map", "1:a:0",
                 "-shortest",
+                "-map_metadata", "-1",
                 str(output_path),
             ]
         try:
@@ -397,6 +400,7 @@ def render_video(
                     "ffmpeg", "-y", "-v", "error",
                     "-i", str(tmp_path),
                     "-c:v", "libx264", "-pix_fmt", "yuv420p", "-an",
+                    "-map_metadata", "-1",
                     str(output_path),
                 ]
                 try:
@@ -420,6 +424,8 @@ def render_video(
             "libx264",
             "-pix_fmt",
             "yuv420p",
+            "-map_metadata",
+            "-1",
             str(output_path),
         ]
         try:
@@ -519,6 +525,7 @@ def run_pipeline(
     speech_soft: bool = False,
     transcript_path: Optional[Path] = None,
     whisper_model: str = "base",
+    keep_metadata: bool = False,
 ) -> Dict[str, object]:
     """Run the full redaction pipeline and return a summary dict.
 
@@ -657,6 +664,58 @@ def run_pipeline(
                 if not speech_hits:
                     print("Speech: no verified PII found in the audio")
 
+    # Metadata layer: container tags and EXIF style data name the place,
+    # the time, and the device even when every pixel is covered. Outputs
+    # are stripped by default and the findings are reported. Keeping
+    # metadata is a deliberate opt in, and audits list the findings as
+    # elements so the gate can fail on a tagged original.
+    from .metadata import inspect_metadata, labels as metadata_labels
+
+    meta_findings = inspect_metadata(input_path)
+    found_labels = metadata_labels(meta_findings)
+    metadata_info = {"found": found_labels, "stripped": bool(meta_findings) and not keep_metadata and not shadow}
+    metadata_elements: List[dict] = []
+    if meta_findings:
+        if shadow:
+            print(f"Metadata: {', '.join(found_labels)} present in the source")
+        elif keep_metadata:
+            print(f"Metadata: {', '.join(found_labels)} found in the source and kept in the output by request")
+        else:
+            print(f"Metadata: {', '.join(found_labels)} found in the source, stripped from the output")
+        if shadow or keep_metadata:
+            from .analytics import SEVERITY_WEIGHTS
+
+            for n, finding in enumerate(meta_findings, start=1):
+                level = finding["severity"]
+                metadata_elements.append(
+                    {
+                        "track": f"metadata:{finding['label'].lower()}:{n}",
+                        "kind": finding["label"].lower(),
+                        "severity": level,
+                        "severity_weight": SEVERITY_WEIGHTS[level],
+                        "frames_detected": total_frames,
+                        "first_frame": 0,
+                        "last_frame": max(0, total_frames - 1),
+                        "share_of_clip": 1.0 if total_frames else 0.0,
+                    }
+                )
+
+    def finish_metadata(rendered: Path) -> None:
+        if not meta_findings:
+            return
+        if keep_metadata:
+            from .metadata import transplant_metadata
+
+            if not transplant_metadata(input_path, rendered):
+                print("Metadata: could not copy the source tags onto the output")
+        elif not shadow:
+            survivors = [
+                l for l in metadata_labels(inspect_metadata(rendered))
+                if l in found_labels
+            ]
+            if survivors:
+                print(f"Metadata warning: {', '.join(survivors)} still present in the output")
+
     # Keep or exclude tracks by key. Kept tracks stay visible while the
     # rest are redacted, excluded tracks are dropped as false positives.
     left_visible: List[str] = []
@@ -736,7 +795,7 @@ def run_pipeline(
                 "share_of_clip": round(max(1, last_frame - first_frame) / total_frames, 3) if total_frames else 0.0,
             }
         )
-    summary = build_summary(all_tracks, total_frames, audio_mode=audio_mode, shadow=shadow, kept_visible=left_visible, sam_mask_source=sam_mask_source, extra_elements=speech_elements)
+    summary = build_summary(all_tracks, total_frames, audio_mode=audio_mode, shadow=shadow, kept_visible=left_visible, sam_mask_source=sam_mask_source, extra_elements=speech_elements + metadata_elements, metadata_info=metadata_info if meta_findings else None)
 
     if shadow:
         paths = write_summary_files(summary, output_path, shadow=True)
@@ -845,6 +904,7 @@ def run_pipeline(
             mask_layers=blur_layers,
             mute_spans=speech_hits or None,
         )
+        finish_metadata(preview_output)
         print(f"Preview sample: {preview_output} ({sample_frames} frames)")
         contact_path = output_path.with_suffix(".contact.png")
         make_contact_sheet(frames, merged_masks, contact_path)
@@ -874,6 +934,7 @@ def run_pipeline(
         mask_layers=blur_layers,
         mute_spans=speech_hits or None,
     )
+    finish_metadata(output_path)
     if info.has_audio and audio_mode != "keep":
         print(f"Audio redaction applied: {audio_mode}")
     print(f"Wrote: {output_path}")

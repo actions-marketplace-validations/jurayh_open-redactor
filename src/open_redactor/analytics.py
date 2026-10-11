@@ -33,6 +33,12 @@ SEVERITY_MAP = {
     "document": "medium",
     "mailbox": "medium",
     "lanyard": "medium",
+    "gps location": "high",
+    "creation time": "medium",
+    "device info": "medium",
+    "title and description": "medium",
+    "embedded text": "medium",
+    "software": "low",
 }
 
 
@@ -62,6 +68,7 @@ def build_summary(
     kept_visible: Optional[List[str]] = None,
     sam_mask_source: str = "none",
     extra_elements: Optional[List[dict]] = None,
+    metadata_info: Optional[dict] = None,
 ) -> dict:
     elements: List[dict] = []
     frames_with_hits: set[int] = set()
@@ -113,6 +120,7 @@ def build_summary(
         "audio_note": audio_note,
         "kept_visible": list(kept_visible or []),
         "sam_mask_source": sam_mask_source,
+        "metadata": metadata_info,
         "elements": elements,
     }
 
@@ -139,6 +147,13 @@ def summary_text(summary: dict) -> str:
         }
         lines.append(f"SAM mask source: {source} ({source_notes.get(source, source)})")
     lines.append(f"Audio: {summary['audio_note']}")
+    meta = summary.get("metadata")
+    if meta and meta.get("found"):
+        found = ", ".join(meta["found"])
+        if meta.get("stripped"):
+            lines.append(f"Metadata: {found} found in the source and stripped from the output")
+        else:
+            lines.append(f"Metadata: {found} found in the source and kept in the output by request")
     if summary.get("kept_visible"):
         lines.append(f"Left visible by request, not redacted: {', '.join(summary['kept_visible'])}")
     if summary["elements"]:

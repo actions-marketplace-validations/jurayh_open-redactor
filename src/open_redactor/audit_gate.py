@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude", action="append", default=None, help="Drop a named track from the audit. Can be repeated")
     parser.add_argument("--speech-pii", action="store_true", help="Also scan the audio for spoken card numbers, SSNs, phone numbers, and emails")
     parser.add_argument("--transcript", default=None, help="Whisper JSON transcript with word timings for the speech layer")
+    parser.add_argument("--keep-metadata", action="store_true", help="Treat source metadata as kept rather than stripped (audits report findings either way)")
     return parser
 
 
@@ -111,6 +112,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         exclude=args.exclude,
         speech_pii=args.speech_pii,
         transcript_path=args.transcript,
+        keep_metadata=args.keep_metadata,
     )
     return audit_files(args.paths, options=options, fail_on=args.fail_on, output_dir=args.output_dir)
 

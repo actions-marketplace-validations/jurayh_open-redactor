@@ -46,6 +46,7 @@ class RedactionOptions:
     exclude: Optional[Sequence[str]] = None
     speech_pii: bool = False
     transcript_path: Optional[str] = None
+    keep_metadata: bool = False
 
     def validate(self) -> None:
         if self.mode not in REDACTION_MODES:
@@ -220,6 +221,7 @@ def redact_media(
             codes=opts.codes or sensitive,
             keep_tracks=list(opts.keep) if opts.keep else None,
             exclude_tracks=list(opts.exclude) if opts.exclude else None,
+            keep_metadata=opts.keep_metadata,
         )
         return _result_from_details(source, details)
 
@@ -252,6 +254,7 @@ def redact_media(
         speech_pii=opts.speech_pii,
         speech_soft=sensitive,
         transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+        keep_metadata=opts.keep_metadata,
     )
     return _result_from_details(source, details)
 
@@ -309,6 +312,7 @@ def audit_media(
         speech_pii=opts.speech_pii,
         speech_soft=opts.sensitive,
         transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+        keep_metadata=opts.keep_metadata,
     )
     return _result_from_details(source, details)
 

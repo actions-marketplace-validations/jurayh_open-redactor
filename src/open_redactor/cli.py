@@ -40,6 +40,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--exclude", action="append", default=None, help="Drop a named track from redaction as a false positive, for example --exclude person:1. Can be repeated, globs allowed")
     p.add_argument("--audio", choices=["keep", "mute", "pitch"], default="keep", help="Audio redaction: keep the original track, mute it, or pitch shift voices")
     p.add_argument("--speech-pii", action="store_true", help="Transcribe the audio locally and mute spoken card numbers, SSNs, phone numbers, and emails")
+    p.add_argument("--keep-metadata", action="store_true", help="Keep source metadata (EXIF and container tags) in the output instead of stripping it")
     p.add_argument("--transcript", default=None, help="Use a Whisper JSON transcript with word timings for the speech layer instead of transcribing")
     p.add_argument("--pitch-factor", type=float, default=0.8, help="Pitch multiplier for --audio pitch. Below 1 deepens, above 1 raises")
     p.add_argument("--provider", choices=["sam", "grounding-sam"], default=None, help="Model provider: SAM via API or hosted, or Grounding SAM locally")
@@ -137,6 +138,7 @@ def process_one(
     speech_pii: bool = False,
     speech_soft: bool = False,
     transcript_path: Optional[Path] = None,
+    keep_metadata: bool = False,
 ) -> int:
     out = output_path if output_path else default_output_path(input_path)
     if output_path is not None:
@@ -173,6 +175,7 @@ def process_one(
             speech_pii=speech_pii,
             speech_soft=speech_soft,
             transcript_path=transcript_path,
+            keep_metadata=keep_metadata,
         )
         return 0
     except FileNotFoundError as exc:
@@ -275,6 +278,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 speech_pii=args.speech_pii,
                 speech_soft=args.sensitive,
                 transcript_path=Path(args.transcript) if args.transcript else None,
+                keep_metadata=args.keep_metadata,
             )
             candidate = expected_out.with_suffix(".summary.json")
             if code == 0 and candidate.exists():
@@ -312,6 +316,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 codes=args.codes or args.sensitive,
                 keep_tracks=args.keep,
                 exclude_tracks=args.exclude,
+                keep_metadata=args.keep_metadata,
             )
             return 0
         except Exception as exc:
@@ -354,6 +359,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         speech_pii=args.speech_pii,
         speech_soft=args.sensitive,
         transcript_path=Path(args.transcript) if args.transcript else None,
+        keep_metadata=args.keep_metadata,
     )
 
 
