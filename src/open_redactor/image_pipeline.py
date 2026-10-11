@@ -34,13 +34,53 @@ def _load_heif_frame(path: Path) -> np.ndarray:
     return rgb[:, :, ::-1].copy()
 
 
+def _exif_orientation(path: Path) -> int:
+    """The EXIF orientation tag of a photo, 1 when absent or unreadable."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            value = img.getexif().get(274, 1)
+            return int(value) if value else 1
+    except Exception:
+        return 1
+
+
+# Correction transforms keyed by EXIF orientation value. OpenCV decodes
+# the stored pixels and ignores the tag, so without these a rotated
+# phone photo would be detected and redacted sideways.
+_ORIENTATION_FIXES = {
+    2: lambda a: np.fliplr(a),
+    3: lambda a: np.rot90(a, 2),
+    4: lambda a: np.flipud(a),
+    5: lambda a: np.swapaxes(a, 0, 1),
+    6: lambda a: np.rot90(a, 3),
+    7: lambda a: np.rot90(np.swapaxes(a, 0, 1), 2),
+    8: lambda a: np.rot90(a, 1),
+}
+
+
+def apply_exif_orientation(frame: np.ndarray, path: Path) -> np.ndarray:
+    """Rotate or flip a decoded frame to its visual orientation."""
+    fix = _ORIENTATION_FIXES.get(_exif_orientation(path))
+    if fix is None:
+        return frame
+    return fix(frame).copy()
+
+
 def read_photo(path: Path) -> np.ndarray:
     """Read a photo to a BGR array. HEIC and HEIF go through pillow-heif
-    because OpenCV cannot decode them. EXIF orientation is applied so
-    phone photos are processed upright."""
-    frame = cv2.imread(str(path))
+    because OpenCV cannot decode them. EXIF orientation is applied on
+    every path so phone photos are processed upright. Newer OpenCV
+    builds apply the tag inside imread and older ones ignore it, so the
+    decode pins the stored pixels and the correction happens here,
+    identically on every build."""
+    flags = cv2.IMREAD_COLOR
+    if hasattr(cv2, "IMREAD_IGNORE_ORIENTATION"):
+        flags |= cv2.IMREAD_IGNORE_ORIENTATION
+    frame = cv2.imread(str(path), flags)
     if frame is not None:
-        return frame
+        return apply_exif_orientation(frame, path)
     if path.suffix.lower() in HEIC_SUFFIXES:
         return _load_heif_frame(path)
     raise ValueError(f"Could not read image: {path}")
