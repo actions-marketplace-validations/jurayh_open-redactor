@@ -18,7 +18,7 @@ VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
 REDACTION_MODES = {"blur", "pixelate", "replace"}
 AUDIO_MODES = {"keep", "mute", "pitch"}
 BACKENDS = {"api", "hosted", "local"}
-PROVIDERS = {"sam", "grounding-sam", "yunet"}
+PROVIDERS = {"sam", "grounding-sam", "yunet", "owlv2"}
 
 
 @dataclass(frozen=True)
@@ -56,7 +56,7 @@ class RedactionOptions:
         if self.backend is not None and self.backend not in BACKENDS:
             raise ValueError(f"Unknown backend '{self.backend}'. Choose api, hosted, or local.")
         if self.provider is not None and self.provider not in PROVIDERS:
-            raise ValueError(f"Unknown provider '{self.provider}'. Choose sam, grounding-sam, or yunet.")
+            raise ValueError(f"Unknown provider '{self.provider}'. Choose sam, grounding-sam, yunet, or owlv2.")
         if self.strength <= 0:
             raise ValueError("strength must be positive")
         if self.mask_margin < 0:

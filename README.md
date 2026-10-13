@@ -129,6 +129,12 @@ open-redactor clip.mp4 --backend local
 open-redactor clip.mp4 --provider yunet
 ```
 
+**Open vocabulary boxes.** `--provider owlv2` runs Google's OWLv2 detector locally from the same local extra. It accepts the same named targets, returns boxes instead of segmentation masks, and links them across frames with IoU tracking. Use it when a local phrase detector matters more than tight mask edges. The summary records the box mask source.
+
+```bash
+open-redactor clip.mp4 --provider owlv2
+```
+
 Pixel-perfect SAM masks decode through @meta-sam/parser when Node is present, with a box fallback that still pads and carries safely.
 
 ## Plug it into your stack
@@ -236,7 +242,7 @@ open-redactor input.mp4 [--output out.mp4]
   --audio keep|mute|pitch          --pitch-factor 0.8
   --speech-pii                      --transcript transcript.json
   --keep-metadata
-  --backend api|hosted|local        --provider sam|grounding-sam|yunet
+  --backend api|hosted|local        --provider sam|grounding-sam|yunet|owlv2
   --endpoint URL                    --api-key-env MODEL_API_KEY
   --no-cache                        --batch            --ui
 ```
@@ -275,6 +281,7 @@ You need ffmpeg and ffprobe on your PATH. From source: clone this repo and `pip 
 - `pipeline.py` and `image_pipeline.py` ingest, detection, padding, rendering, reports
 - `sam_client.py` the SAM 3.1 API and hosted client with caching
 - `local_gsam.py` Grounding DINO plus SAM 2 local provider with IoU tracking
+- `owlv2.py` OWLv2 local open vocabulary box provider with IoU tracking
 - `yunet.py` YuNet fast local face provider, the basic tier
 - `masks.py` padding, carry-forward, smoothing, and coverage reports
 - `pii.py`, `codes.py` the text and codes layers

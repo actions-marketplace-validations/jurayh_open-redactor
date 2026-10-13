@@ -77,7 +77,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--target", action="append", default=None, help="Add one phrase. Can be repeated")
     parser.add_argument("--backend", choices=["api", "hosted", "local"], default=None)
     parser.add_argument("--endpoint", default=None)
-    parser.add_argument("--provider", choices=["sam", "grounding-sam", "yunet"], default=None)
+    parser.add_argument("--provider", choices=["sam", "grounding-sam", "yunet", "owlv2"], default=None)
     parser.add_argument("--local", action="store_true")
     parser.add_argument("--api-key-env", default="MODEL_API_KEY")
     parser.add_argument("--no-cache", action="store_true")

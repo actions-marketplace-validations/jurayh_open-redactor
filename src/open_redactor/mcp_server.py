@@ -44,7 +44,7 @@ _OPTION_SCHEMA: dict[str, Any] = {
     "carry_frames": {"type": "integer", "minimum": 0, "default": 4},
     "backend": {"type": "string", "enum": ["api", "hosted", "local"]},
     "endpoint": {"type": "string", "description": "Hosted Responses API endpoint."},
-    "provider": {"type": "string", "enum": ["sam", "grounding-sam", "yunet"]},
+    "provider": {"type": "string", "enum": ["sam", "grounding-sam", "yunet", "owlv2"]},
     "local": {"type": "boolean", "default": False},
     "api_key_env": {
         "type": "string",

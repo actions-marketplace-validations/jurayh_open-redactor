@@ -167,7 +167,7 @@ def run_image_pipeline(
 
     resolved_backend = backend or ("local" if local else "api")
     resolved_provider = provider or ("grounding-sam" if resolved_backend == "local" else "sam")
-    if resolved_provider == "yunet":
+    if resolved_provider in ("yunet", "owlv2"):
         resolved_backend = "local"
     client: object
     if resolved_backend == "local":
@@ -179,6 +179,10 @@ def run_image_pipeline(
             from .yunet import YunetFaceClient
 
             client = YunetFaceClient()
+        elif resolved_provider == "owlv2":
+            from .owlv2 import Owlv2Client
+
+            client = Owlv2Client()
         else:
             client = LocalSamStub()
     else:

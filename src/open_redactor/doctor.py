@@ -124,8 +124,14 @@ def run_checks(api_key_env: str = "MODEL_API_KEY") -> List[Tuple[str, Check]]:
     checks.append((OPTIONAL, (
         "Local backend (torch and transformers)",
         local_ok,
-        "local Grounding SAM stack importable" if local_ok else "not installed, the local backend will ask for the extra",
+        "local model stack importable" if local_ok else "not installed, the local backend will ask for the extra",
         'pip install "open-redactor[local]"',
+    )))
+    checks.append((OPTIONAL, (
+        "Open vocabulary provider (OWLv2)",
+        local_ok,
+        "local OWLv2 stack ready, model downloads on first use" if local_ok else "not installed, OWLv2 will ask for the local extra",
+        "use --provider owlv2 after installing the local extra",
     )))
     checks.append((OPTIONAL, (
         "Speech layer (faster-whisper)",
