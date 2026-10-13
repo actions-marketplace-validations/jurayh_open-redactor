@@ -58,6 +58,14 @@ Use --preset documents --pii-text for passports, bank cards, driver licenses, an
 
 Normal runs print analytics and write a .summary.json. --shadow runs detection only and writes an .audit.txt with severity per element, so start with a shadow audit on anything sensitive or unfamiliar. --mode replace swaps regions for generated stand-ins instead of masking, with per track deterministic fakes. Shadow first, replace when the natural feel matters, blur when it does not.
 
+## Audio only files
+
+MP3, WAV, and M4A files are inputs in their own right, for voice notes, dictated messages, call recordings, and podcast clips that never had a picture. The output keeps the input format and the usual safe naming, and the run covers the three channels an audio file carries.
+
+Spoken PII works exactly as it does on a video track. `--speech-pii` transcribes locally with the speech extra, or `--transcript` takes a Whisper JSON with word timings, and verified card numbers, SSNs, phone numbers, and emails are muted in place and reported as `speech:<kind>:<n>` elements in the summary. `--sensitive` enables the layer when a transcriber is present. The whole track modes apply too: `--audio mute` writes a silent copy, and `--audio pitch` with `--pitch-factor` disguises the voice with tempo preserved.
+
+Container tags get the same treatment as video. ID3 and MP4 tags are inspected before the run, stripped from the output by default with the findings reported in the summary metadata block, and kept only with `--keep-metadata`. A shadow audit with `--shadow` renders nothing and lists speech hits and metadata findings as elements, so the audit gate can fail on a tagged or revealing original before anyone shares it.
+
 ## Keep or exclude a track
 
 Every track has a key, printed in the coverage report and the summary JSON, for example `person:0`, `face:1`, or `pii:email:2`. Two flags use those keys. `--keep person:0` leaves that one track visible while everything else is redacted, which is the family video case where one person is fine being seen. `--exclude person:1` drops a named track from redaction, which is the fix for a false positive. Both flags repeat, both accept globs such as `person:*`, and both apply to photos as well as video. A pattern that matches nothing prints a warning with the track keys that do exist. Whatever was left visible is listed in the coverage report and under `kept_visible` in the summary JSON, so an exception never hides in the record.

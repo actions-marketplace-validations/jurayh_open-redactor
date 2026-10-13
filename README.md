@@ -173,6 +173,12 @@ open-redactor photo.jpg --preset documents --sensitive
 
 Video inputs cover MP4, MOV, MKV, WebM, AVI, and M4V from phones, OBS, browsers, and older cameras. Output is always MP4. Batch mode takes a whole folder. Output naming never overwrites your original or an earlier redacted copy.
 
+Audio files work on their own too. MP3, WAV, and M4A in, share-safe audio out in the same format. There are no pixels to detect, so the run covers the channels an audio file actually carries: spoken numbers and addresses muted with `--speech-pii`, the whole track silenced or pitch shifted with `--audio`, and container tags inspected and stripped like every other format.
+
+```bash
+open-redactor voice-note.m4a --speech-pii
+```
+
 Prefer clicking? `open-redactor --ui` opens a drag and drop page that runs only on your own machine at 127.0.0.1.
 
 ## The full demo
@@ -232,6 +238,7 @@ A detector that drops a face for two frames leaks those two frames. So the pipel
 
 ```text
 open-redactor input.mp4 [--output out.mp4]
+  audio inputs (MP3, WAV, M4A) run the speech, audio mode, and metadata layers
   --target PHRASE (repeatable)      --targets-default  --add-target PHRASE
   --preset family|street|screen-share|documents|location
   --mode blur|pixelate|replace      --strength N       --mask-margin N  --carry-frames N
@@ -277,8 +284,9 @@ You need ffmpeg and ffprobe on your PATH. From source: clone this repo and `pip 
 
 ## Project layout
 
-- `cli.py` the command line, presets, and routing for video and photos
+- `cli.py` the command line, presets, and routing for video, photos, and audio
 - `pipeline.py` and `image_pipeline.py` ingest, detection, padding, rendering, reports
+- `audio_pipeline.py` audio only runs: speech muting, audio modes, and metadata
 - `sam_client.py` the SAM 3.1 API and hosted client with caching
 - `local_gsam.py` Grounding DINO plus SAM 2 local provider with IoU tracking
 - `owlv2.py` OWLv2 local open vocabulary box provider with IoU tracking

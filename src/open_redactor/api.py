@@ -15,6 +15,7 @@ from typing import Any, Mapping, Optional, Sequence
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a"}
 REDACTION_MODES = {"blur", "pixelate", "replace"}
 AUDIO_MODES = {"keep", "mute", "pitch"}
 BACKENDS = {"api", "hosted", "local"}
@@ -131,7 +132,7 @@ def _unique_output_path(path: Path) -> Path:
 
 
 def _default_output_path(input_path: Path) -> Path:
-    if input_path.suffix.lower() in IMAGE_SUFFIXES:
+    if input_path.suffix.lower() in IMAGE_SUFFIXES | AUDIO_SUFFIXES:
         return _unique_output_path(input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}"))
     return _unique_output_path(input_path.with_name(f"{input_path.stem}.redacted.mp4"))
 
@@ -178,11 +179,12 @@ def redact_media(
     report: bool = True,
     **option_overrides: Any,
 ) -> RedactionResult:
-    """Redact one video or photo and return paths plus run analytics.
+    """Redact one video, photo, or audio file and return paths plus analytics.
 
     ``targets`` may be supplied through ``options`` or as a keyword override.
     When neither targets nor a preset is supplied, the product default target
-    set is used.
+    set is used. Audio inputs ignore visual targets and run the speech,
+    audio mode, and metadata layers instead.
     """
 
     opts = _coerce_options(options, option_overrides)
@@ -192,13 +194,30 @@ def redact_media(
     if source.is_dir():
         raise ValueError("redact_media handles one file. Iterate over a directory or use the CLI batch mode.")
     suffix = source.suffix.lower()
-    if suffix not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
-        supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
+    if suffix not in IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES:
+        supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES))
         raise ValueError(f"Unsupported input format '{source.suffix}'. Supported inputs: {supported}.")
 
     targets = _resolve_targets(opts)
     destination = _choose_output_path(source, output_path)
     sensitive = opts.sensitive
+
+    if suffix in AUDIO_SUFFIXES:
+        if preview:
+            raise ValueError("Preview mode is available for video, not audio files.")
+        from .audio_pipeline import run_audio_pipeline
+
+        details = run_audio_pipeline(
+            input_path=source,
+            output_path=destination,
+            audio_mode=opts.audio_mode,
+            pitch_factor=opts.pitch_factor,
+            speech_pii=opts.speech_pii,
+            speech_soft=sensitive,
+            transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+            keep_metadata=opts.keep_metadata,
+        )
+        return _result_from_details(source, details)
 
     if suffix in IMAGE_SUFFIXES:
         if preview:
@@ -265,7 +284,7 @@ def audit_media(
     options: Optional[RedactionOptions | Mapping[str, Any]] = None,
     **option_overrides: Any,
 ) -> RedactionResult:
-    """Audit one video without rendering a redacted copy.
+    """Audit one video or audio file without rendering a redacted copy.
 
     The returned result points to the text audit and JSON summary produced by
     the pipeline. Photo shadow audits are not part of the current pipeline, so
@@ -277,7 +296,23 @@ def audit_media(
     if not source.exists():
         raise FileNotFoundError(f"Input not found: {source}")
     if source.suffix.lower() in IMAGE_SUFFIXES:
-        raise ValueError("audit_media currently supports video. Use redact_media for photos.")
+        raise ValueError("audit_media currently supports video and audio. Use redact_media for photos.")
+    if source.suffix.lower() in AUDIO_SUFFIXES:
+        audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
+        from .audio_pipeline import run_audio_pipeline
+
+        details = run_audio_pipeline(
+            input_path=source,
+            output_path=audit_base,
+            audio_mode=opts.audio_mode,
+            pitch_factor=opts.pitch_factor,
+            speech_pii=opts.speech_pii,
+            speech_soft=opts.sensitive,
+            transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+            keep_metadata=opts.keep_metadata,
+            shadow=True,
+        )
+        return _result_from_details(source, details)
     if source.suffix.lower() not in VIDEO_SUFFIXES:
         raise ValueError(f"Unsupported video format '{source.suffix}'.")
 
@@ -324,6 +359,7 @@ audit = audit_media
 
 __all__ = [
     "AUDIO_MODES",
+    "AUDIO_SUFFIXES",
     "BACKENDS",
     "IMAGE_SUFFIXES",
     "PROVIDERS",

@@ -68,9 +68,9 @@ def audit_files(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="open-redactor-audit",
-        description="Audit videos and fail CI or a pre-commit hook when sensitive elements are found",
+        description="Audit media files and fail CI or a pre-commit hook when sensitive elements are found",
     )
-    parser.add_argument("paths", nargs="+", help="Video files to audit")
+    parser.add_argument("paths", nargs="+", help="Video or audio files to audit")
     parser.add_argument("--fail-on", choices=sorted(SEVERITY_ORDER), default="medium")
     parser.add_argument("--output-dir", default=None, help="Keep audit reports and summaries in this directory")
     parser.add_argument("--preset", choices=["family", "street", "screen-share", "documents", "location"], default=None)

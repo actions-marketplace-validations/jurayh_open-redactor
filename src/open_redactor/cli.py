@@ -15,7 +15,7 @@ from .sam_client import resolve_targets
 
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="open-redactor", description="Make video share-safe with SAM 3.1 prompt-driven redaction")
-    p.add_argument("input", nargs="?", default=None, help="Input video file, MP4, MOV, MKV, WebM, AVI, or M4V, or a directory in batch mode")
+    p.add_argument("input", nargs="?", default=None, help="Input media file: video (MP4, MOV, MKV, WebM, AVI, M4V), photo (JPG, PNG, WebP, BMP, HEIC), or audio (MP3, WAV, M4A), or a directory in batch mode")
     p.add_argument("--output", default=None, help="Output path. Defaults to input name plus a redacted suffix")
     p.add_argument("--target", action="append", default=None, help="Add one phrase. Can be repeated")
     p.add_argument("--targets-default", action="store_true", help="Start from the default set of person, face, license plate, and screen")
@@ -290,6 +290,39 @@ def main(argv: Optional[List[str]] = None) -> int:
             rollup_path = write_batch_rollup(summary_paths, dest_dir)
             print(f"Batch summary: {rollup_path}")
         return exit_code
+
+    # Audio mode: audio inputs go to the audio pipeline, output keeps its format
+    if input_path.suffix.lower() in {".mp3", ".wav", ".m4a"}:
+        from .audio_pipeline import run_audio_pipeline
+        if not input_path.exists():
+            print(f"Error: Input not found: {input_path}", file=sys.stderr)
+            return 2
+        out = Path(args.output) if args.output else unique_output_path(
+            input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}")
+        )
+        if args.output:
+            out = unique_output_path(out)
+            if out.resolve() == input_path.resolve():
+                out = unique_output_path(input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}"))
+        try:
+            run_audio_pipeline(
+                input_path=input_path,
+                output_path=out,
+                audio_mode=args.audio,
+                pitch_factor=args.pitch_factor,
+                speech_pii=args.speech_pii,
+                speech_soft=args.sensitive,
+                transcript_path=Path(args.transcript) if args.transcript else None,
+                keep_metadata=args.keep_metadata,
+                shadow=args.shadow,
+            )
+            return 0
+        except ValueError as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 2
+        except Exception as exc:
+            print(f"Error: {exc}", file=sys.stderr)
+            return 1
 
     # Photo mode: image inputs go to the image pipeline, output keeps its format
     if input_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif"}:

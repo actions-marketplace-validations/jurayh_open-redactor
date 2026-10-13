@@ -96,7 +96,7 @@ def inspect_video(path: Path) -> List[Dict[str, str]]:
             findings.append(_finding(CREATION))
         elif key in ("make", "model", "manufacturer", "com.apple.quicktime.make", "com.apple.quicktime.model"):
             findings.append(_finding(DEVICE))
-        elif key in ("title", "description", "comment", "synopsis"):
+        elif key in ("title", "description", "comment", "synopsis", "artist", "album", "composer"):
             findings.append(_finding(TEXT))
     return _dedupe(findings)
 
