@@ -7,7 +7,7 @@ Open Redactor is built to sit inside other tools rather than become another dest
 | Python API | Apps, notebooks, workers, and workflow engines | `redact_media` and `audit_media` |
 | MCP server | Agent frameworks and desktop AI tools | `open-redactor-mcp` |
 | HTTP server | Team services and no-code automation | `open-redactor-server` |
-| GitHub Action | Repository checks and release media | `jurayh/open-redactor@v0.2.15` |
+| GitHub Action | Repository checks and release media | `jurayh/open-redactor@v0.2.16` |
 | Pre-commit hook | Stopping a risky video before it enters Git | `open-redactor-audit` |
 | Docker | CI, servers, and repeatable installs | The repo `Dockerfile` |
 | CLI | Shell scripts, OBS folders, ffmpeg workflows, Airflow, and cron | `open-redactor` |
@@ -36,6 +36,38 @@ if audit.summary and audit.summary["elements_found"]:
 ```
 
 `RedactionResult` carries `output_path`, `summary_path`, `coverage_report_path`, `contact_sheet_path`, and the parsed `summary` dict. Its `to_dict()` method is JSON ready for queues and workflow engines.
+
+### Options reference
+
+Options can be passed as a `RedactionOptions` object, a plain dict, or keyword arguments, and unknown names raise an error that names the bad key. Every field:
+
+| Option | Default | What it does |
+|---|---|---|
+| `targets` | product defaults | Phrases to find and hide, such as `person`, `face`, `license plate`, `screen` |
+| `preset` | none | A named target bundle: `family`, `street`, `screen-share`, `documents`, `location` |
+| `mode` | `blur` | Redaction style: `blur`, `pixelate`, or `replace` |
+| `strength` | `21` | Blur or pixelate strength before the adaptive bump for large regions |
+| `mask_margin` | `10` | Pixels of padding grown around every mask |
+| `carry_frames` | `4` | Frames a track is carried forward through detection dropouts |
+| `backend` | auto | `api`, `hosted`, or `local`. Auto picks local for local-only providers and api otherwise |
+| `endpoint` | none | Base URL for the `hosted` backend |
+| `provider` | auto | `sam`, `grounding-sam`, `yunet`, or `owlv2` |
+| `local` | `False` | Legacy alias for `backend="local"` |
+| `api_key_env` | `MODEL_API_KEY` | Name of the environment variable holding the API key |
+| `use_cache` | `True` | Reuse cached SAM results for identical inputs |
+| `pii_text` | `False` | OCR sampled frames and hide verified card numbers, SSNs, phone numbers, and emails |
+| `codes` | `False` | Cover QR codes and barcodes with an opaque fill |
+| `sensitive` | `False` | Bundle switch: `pii_text` plus `codes`, and the speech layer when it can run |
+| `audio_mode` | `keep` | Video track handling: `keep`, `mute`, or `pitch`. For audio files it is the whole track mode |
+| `pitch_factor` | `0.8` | Pitch multiplier for `audio_mode="pitch"`, tempo preserved |
+| `keep` | none | Track keys or globs left visible while everything else is redacted |
+| `exclude` | none | Track keys or globs dropped as false positives |
+| `speech_pii` | `False` | Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails |
+| `transcript_path` | none | A Whisper JSON transcript to use instead of transcribing |
+| `keep_metadata` | `False` | Keep source metadata in the output instead of stripping and reporting it |
+| `quiet` | `False` | Route pipeline progress output to the `open_redactor` logger at debug level instead of stdout |
+
+Conflicting combinations fail fast with a message that says how to fix them. Local-only providers (`grounding-sam`, `yunet`, `owlv2`) reject the `api` and `hosted` backends, provider `sam` rejects the `local` backend, and `local=True` rejects a non-local `backend`.
 
 The calls are synchronous and CPU heavy for long clips. Run them in a worker, task queue, or workflow step rather than inside a web request handler. The file at `examples/integrations/python_api.py` is a runnable starting point.
 
@@ -116,7 +148,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jurayh/open-redactor@v0.2.15
+      - uses: jurayh/open-redactor@v0.2.16
         env:
           MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
         with:
@@ -142,7 +174,7 @@ Add this to `.pre-commit-config.yaml` to audit videos before they are committed:
 ```yaml
 repos:
   - repo: https://github.com/jurayh/open-redactor
-    rev: v0.2.15
+    rev: v0.2.16
     hooks:
       - id: open-redactor-audit
         args: [--fail-on=medium, --sensitive, --backend=api]

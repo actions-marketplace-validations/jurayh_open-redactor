@@ -8,7 +8,10 @@ shell out to the CLI.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
@@ -20,6 +23,9 @@ REDACTION_MODES = {"blur", "pixelate", "replace"}
 AUDIO_MODES = {"keep", "mute", "pitch"}
 BACKENDS = {"api", "hosted", "local"}
 PROVIDERS = {"sam", "grounding-sam", "yunet", "owlv2"}
+LOCAL_ONLY_PROVIDERS = {"grounding-sam", "yunet", "owlv2"}
+
+logger = logging.getLogger("open_redactor")
 
 
 @dataclass(frozen=True)
@@ -48,6 +54,7 @@ class RedactionOptions:
     speech_pii: bool = False
     transcript_path: Optional[str] = None
     keep_metadata: bool = False
+    quiet: bool = False
 
     def validate(self) -> None:
         if self.mode not in REDACTION_MODES:
@@ -58,6 +65,12 @@ class RedactionOptions:
             raise ValueError(f"Unknown backend '{self.backend}'. Choose api, hosted, or local.")
         if self.provider is not None and self.provider not in PROVIDERS:
             raise ValueError(f"Unknown provider '{self.provider}'. Choose sam, grounding-sam, yunet, or owlv2.")
+        if self.local and self.backend is not None and self.backend != "local":
+            raise ValueError(f"Conflicting options: local=True with backend '{self.backend}'. Drop one of them.")
+        if self.provider in LOCAL_ONLY_PROVIDERS and self.backend is not None and self.backend != "local":
+            raise ValueError(f"Provider '{self.provider}' runs locally. Use backend 'local' or leave backend unset.")
+        if self.provider == "sam" and self.backend == "local":
+            raise ValueError("Provider 'sam' talks to a remote SAM 3.1 endpoint. Use backend 'api' or 'hosted', or provider 'grounding-sam', 'owlv2', or 'yunet' for a local run.")
         if self.strength <= 0:
             raise ValueError("strength must be positive")
         if self.mask_margin < 0:
@@ -105,6 +118,26 @@ def _coerce_options(
     result = RedactionOptions(**values)
     result.validate()
     return result
+
+
+def _run(opts: RedactionOptions, fn: Any, **kwargs: Any) -> Any:
+    """Call a pipeline function, honoring the quiet option.
+
+    Pipelines report progress with print. Callers who set quiet=True
+    get that output routed to the ``open_redactor`` logger at debug
+    level instead of stdout, so the API can sit inside a service
+    without polluting its logs or response stream.
+    """
+    if not opts.quiet:
+        return fn(**kwargs)
+    buffer = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buffer):
+            return fn(**kwargs)
+    finally:
+        captured = buffer.getvalue().strip()
+        if captured:
+            logger.debug("Pipeline output:\n%s", captured)
 
 
 def _resolve_targets(options: RedactionOptions) -> list[str]:
@@ -207,7 +240,7 @@ def redact_media(
             raise ValueError("Preview mode is available for video, not audio files.")
         from .audio_pipeline import run_audio_pipeline
 
-        details = run_audio_pipeline(
+        details = _run(opts, run_audio_pipeline,
             input_path=source,
             output_path=destination,
             audio_mode=opts.audio_mode,
@@ -224,7 +257,7 @@ def redact_media(
             raise ValueError("Preview mode is available for video, not photos.")
         from .image_pipeline import run_image_pipeline
 
-        details = run_image_pipeline(
+        details = _run(opts, run_image_pipeline,
             input_path=source,
             output_path=destination,
             targets=targets,
@@ -246,7 +279,7 @@ def redact_media(
 
     from .pipeline import run_pipeline
 
-    details = run_pipeline(
+    details = _run(opts, run_pipeline,
         input_path=source,
         output_path=destination,
         targets=targets,
@@ -301,7 +334,7 @@ def audit_media(
         audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
         from .audio_pipeline import run_audio_pipeline
 
-        details = run_audio_pipeline(
+        details = _run(opts, run_audio_pipeline,
             input_path=source,
             output_path=audit_base,
             audio_mode=opts.audio_mode,
@@ -320,7 +353,7 @@ def audit_media(
     audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit.mp4")
     from .pipeline import run_pipeline
 
-    details = run_pipeline(
+    details = _run(opts, run_pipeline,
         input_path=source,
         output_path=audit_base,
         targets=targets,
@@ -362,6 +395,7 @@ __all__ = [
     "AUDIO_SUFFIXES",
     "BACKENDS",
     "IMAGE_SUFFIXES",
+    "LOCAL_ONLY_PROVIDERS",
     "PROVIDERS",
     "REDACTION_MODES",
     "VIDEO_SUFFIXES",

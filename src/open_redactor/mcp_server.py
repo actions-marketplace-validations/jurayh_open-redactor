@@ -70,6 +70,7 @@ _OPTION_SCHEMA: dict[str, Any] = {
     "speech_pii": {"type": "boolean", "default": False, "description": "Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails."},
     "transcript_path": {"type": "string", "description": "Path to a Whisper JSON transcript with word timings to use for the speech layer instead of transcribing."},
     "keep_metadata": {"type": "boolean", "default": False, "description": "Keep source metadata (EXIF and container tags) in the output instead of stripping it."},
+    "quiet": {"type": "boolean", "default": False, "description": "Route pipeline progress output to the open_redactor logger instead of stdout."},
 }
 
 TOOLS: list[dict[str, Any]] = [
