@@ -388,6 +388,7 @@
           <article class="card"><div class="icon">⌖</div><h3>Location clues</h3><p>Signs, house numbers, mailboxes, and plates are often the detail that turns a nice photo into a map pin.</p></article>
           <article class="card"><div class="icon">♪</div><h3>Voices and spoken secrets</h3><p>Keep the audio, mute it, or pitch shift it. And with the speech layer, a dictated phone number, card number, or email is found in the transcript and muted in place.</p></article>
           <article class="card"><div class="icon">◍</div><h3>The invisible layer</h3><p>GPS coordinates, timestamps, and device details ride inside photo EXIF and video tags. Every run inspects the source, strips them from the output, and reports what it found.</p></article>
+          <article class="card"><div class="icon">♫</div><h3>Audio files</h3><p>Voice memos and recordings are inputs too. MP3, WAV, and M4A files get spoken secrets muted, the whole track silenced or pitch shifted on request, and ID3 tags stripped and reported.</p></article>
         </div>
       </div>
     </section>
@@ -475,7 +476,7 @@ cat clip.redacted.coverage.txt</pre>
         <div class="grid-3">
           <article class="card"><h3>API</h3><p>Best quality with no GPU to manage. Your media goes to the API with your key.</p></article>
           <article class="card"><h3>Hosted</h3><p>The same request shape pointed at a team server, a cloud GPU box, or your own deployment.</p></article>
-          <article class="card"><h3>Local</h3><p>Grounding DINO plus SAM 2 on your hardware. This is the mode for footage that should never be uploaded.</p></article>
+          <article class="card"><h3>Local</h3><p>Grounding DINO plus SAM 2 on your hardware when mask shape matters, OWLv2 for open vocabulary boxes, or YuNet when the job is just faces and speed matters. This is the mode for footage that should never be uploaded.</p></article>
         </div>
         <div class="note" style="margin-top:22px">
           Honest limit: no detector is perfect. Use the preview, the audit, and the coverage report before sharing anything sensitive. False positives can be excluded by track key, and missed details are exactly what the review surfaces are for.

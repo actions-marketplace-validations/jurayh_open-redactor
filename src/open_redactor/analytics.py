@@ -152,6 +152,8 @@ def summary_text(summary: dict) -> str:
         found = ", ".join(meta["found"])
         if meta.get("stripped"):
             lines.append(f"Metadata: {found} found in the source and stripped from the output")
+        elif str(summary.get("mode", "")).startswith("shadow"):
+            lines.append(f"Metadata: {found} found in the source, reported only, nothing was rendered")
         else:
             lines.append(f"Metadata: {found} found in the source and kept in the output by request")
     if summary.get("kept_visible"):

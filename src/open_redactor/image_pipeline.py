@@ -143,6 +143,7 @@ def run_image_pipeline(
     keep_tracks: Optional[List[str]] = None,
     exclude_tracks: Optional[List[str]] = None,
     keep_metadata: bool = False,
+    shadow: bool = False,
 ) -> Dict[str, object]:
     frame = read_photo(input_path)
     height, width = frame.shape[:2]
@@ -250,6 +251,70 @@ def run_image_pipeline(
                 f"Warning: no track matches '{pattern}'. "
                 f"Track keys in this photo: {available}"
             )
+
+    if shadow:
+        # Audit only: report detections, text and code hits, and
+        # metadata findings, then stop before any rendering. Findings
+        # become summary elements so the audit gate can fail on them,
+        # exactly like the video and audio shadow audits.
+        if not sam_sources:
+            shadow_mask_source = "none"
+        elif all(s == "pixel" for s in sam_sources):
+            shadow_mask_source = "pixel"
+        elif all(s == "box" for s in sam_sources):
+            shadow_mask_source = "box"
+        else:
+            shadow_mask_source = "mixed"
+        from .analytics import SEVERITY_WEIGHTS, build_summary, summary_text, write_summary_files
+        from .metadata import inspect_metadata, labels as metadata_labels
+
+        meta_findings = inspect_metadata(input_path)
+        found_labels = metadata_labels(meta_findings)
+        metadata_elements: List[dict] = []
+        for n, finding in enumerate(meta_findings, start=1):
+            level = finding["severity"]
+            metadata_elements.append(
+                {
+                    "track": f"metadata:{finding['label'].lower()}:{n}",
+                    "kind": finding["label"].lower(),
+                    "severity": level,
+                    "severity_weight": SEVERITY_WEIGHTS[level],
+                    "frames_detected": 1,
+                    "first_frame": 0,
+                    "last_frame": 0,
+                    "share_of_clip": 1.0,
+                }
+            )
+        metadata_info = {"found": found_labels, "stripped": False}
+        summary = build_summary(
+            all_tracks,
+            1,
+            shadow=True,
+            kept_visible=left_visible,
+            sam_mask_source=shadow_mask_source,
+            extra_elements=metadata_elements,
+            metadata_info=metadata_info if meta_findings else None,
+        )
+        summary["audio_note"] = "No audio track. Photos carry no sound."
+        paths = write_summary_files(summary, output_path, shadow=True)
+        print(summary_text(summary))
+        print(f"Audit report: {paths['audit']}")
+        print(f"Summary JSON: {paths['json']}")
+        print("Shadow mode: no redacted photo was rendered and the original is untouched.")
+        if _detect_tmp is not None:
+            _detect_tmp.cleanup()
+        return {
+            "input": str(input_path),
+            "output": None,
+            "audit": str(paths["audit"]),
+            "summary": str(paths["json"]),
+            "objects": total_objects,
+            "photo": True,
+            "shadow": True,
+            "kept_visible": left_visible,
+            "sam_mask_source": shadow_mask_source,
+            "metadata": metadata_info,
+        }
 
     if total_objects == 0:
         print("Nothing matched. Writing a clean copy.")

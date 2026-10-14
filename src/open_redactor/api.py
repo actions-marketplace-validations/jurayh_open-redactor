@@ -317,11 +317,10 @@ def audit_media(
     options: Optional[RedactionOptions | Mapping[str, Any]] = None,
     **option_overrides: Any,
 ) -> RedactionResult:
-    """Audit one video or audio file without rendering a redacted copy.
+    """Audit one video, photo, or audio file without rendering a copy.
 
-    The returned result points to the text audit and JSON summary produced by
-    the pipeline. Photo shadow audits are not part of the current pipeline, so
-    photo inputs raise a clear error instead of returning a partial audit.
+    The returned result points to the text audit and JSON summary produced
+    by the pipeline for the input type.
     """
 
     opts = _coerce_options(options, option_overrides)
@@ -329,7 +328,29 @@ def audit_media(
     if not source.exists():
         raise FileNotFoundError(f"Input not found: {source}")
     if source.suffix.lower() in IMAGE_SUFFIXES:
-        raise ValueError("audit_media currently supports video and audio. Use redact_media for photos.")
+        audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
+        from .image_pipeline import run_image_pipeline
+
+        details = _run(opts, run_image_pipeline,
+            input_path=source,
+            output_path=audit_base,
+            targets=_resolve_targets(opts),
+            mode=opts.mode,
+            strength=opts.strength,
+            mask_margin=opts.mask_margin,
+            local=opts.local,
+            api_key_env=opts.api_key_env,
+            backend=opts.backend,
+            endpoint=opts.endpoint,
+            provider=opts.provider,
+            pii_text=opts.pii_text or opts.sensitive,
+            codes=opts.codes or opts.sensitive,
+            keep_tracks=list(opts.keep) if opts.keep else None,
+            exclude_tracks=list(opts.exclude) if opts.exclude else None,
+            keep_metadata=opts.keep_metadata,
+            shadow=True,
+        )
+        return _result_from_details(source, details)
     if source.suffix.lower() in AUDIO_SUFFIXES:
         audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
         from .audio_pipeline import run_audio_pipeline

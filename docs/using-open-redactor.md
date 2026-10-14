@@ -44,7 +44,7 @@ Blur strength adapts to region size. The default kernel is sized for faces, and 
 
 Detection can miss. Padding, carry-forward, and gap flags reduce the leak risk, and the contact sheet is your final human check. Treat any NEEDS REVIEW line in a coverage report as a stop before sharing.
 
-Video input formats are MP4, MOV, MKV, WebM, AVI, and M4V. Photo inputs are JPG, PNG, WebP, BMP, and HEIC or HEIF, and a photo run writes a redacted photo in the same format using the same targets, presets, and sensitive layers. HEIC is what iPhones shoot by default, and it needs the one-time extra `pip install "open-redactor[heic]"` because OpenCV cannot decode it. Phone photo orientation is applied on read, and a HEIC file is transcoded to a temp PNG for detection only, so the API never sees a format it would reject and your original is never changed. Phones shoot MOV, screen tools emit WebM and MKV, and older cameras write AVI, so all of them are accepted and batch mode picks them all up. Output is always MP4 for share compatibility. Non-MP4 inputs sent to the API or a hosted endpoint are transcoded to a temp MP4 for the upload only, your original file is never changed.
+Video input formats are MP4, MOV, MKV, WebM, AVI, and M4V. Photo inputs are JPG, PNG, WebP, BMP, and HEIC or HEIF, and a photo run writes a redacted photo in the same format using the same targets, presets, and sensitive layers. HEIC is what iPhones shoot by default, and it needs the one-time extra `pip install "open-redactor[heic]"` because OpenCV cannot decode it. Phone photo orientation is applied on read, and a HEIC file is transcoded to a temp PNG for detection only, so the API never sees a format it would reject and your original is never changed. Phones shoot MOV, screen tools emit WebM and MKV, and older cameras write AVI, so all of them are accepted and batch mode picks them all up. Batch mode also picks up photos and audio files in the same folder and runs each through its own pipeline. Output is always MP4 for share compatibility. Non-MP4 inputs sent to the API or a hosted endpoint are transcoded to a temp MP4 for the upload only, your original file is never changed.
 
 ## Sensitive documents
 
@@ -56,7 +56,7 @@ Use --preset documents --pii-text for passports, bank cards, driver licenses, an
 
 ## Analytics, shadow, and replacement
 
-Normal runs print analytics and write a .summary.json. --shadow runs detection only and writes an .audit.txt with severity per element, so start with a shadow audit on anything sensitive or unfamiliar. --mode replace swaps regions for generated stand-ins instead of masking, with per track deterministic fakes. Shadow first, replace when the natural feel matters, blur when it does not.
+Normal runs print analytics and write a .summary.json. --shadow runs detection only and writes an .audit.txt with severity per element, so start with a shadow audit on anything sensitive or unfamiliar. Shadow audits work on photos too, with detections, text and code hits, and metadata findings listed as elements and nothing rendered. --mode replace swaps regions for generated stand-ins instead of masking, with per track deterministic fakes. Shadow first, replace when the natural feel matters, blur when it does not.
 
 ## Audio only files
 

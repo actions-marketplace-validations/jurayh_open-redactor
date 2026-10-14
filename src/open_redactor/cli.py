@@ -47,7 +47,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--backend", choices=["api", "hosted", "local"], default=None, help="Where SAM runs: Meta Model API, your own hosted endpoint, or local open weights")
     p.add_argument("--endpoint", default=None, help="Responses API endpoint for the hosted backend, or set OPEN_REDACTOR_ENDPOINT")
     p.add_argument("--ui", action="store_true", help="Launch the drag and drop local web page instead of processing a file")
-    p.add_argument("--batch", action="store_true", help="Treat the input as a directory and process each MP4 inside")
+    p.add_argument("--batch", action="store_true", help="Treat the input as a directory and process each supported media file inside")
     return p
 
 
@@ -189,6 +189,61 @@ def process_one(
         return 1
 
 
+def _process_photo_batch(input_path: Path, output_path: Path, targets: List[str], args) -> int:
+    """Batch entry for one photo, mirroring the single-file photo branch."""
+    from .image_pipeline import run_image_pipeline
+
+    try:
+        run_image_pipeline(
+            input_path=input_path,
+            output_path=output_path,
+            targets=targets,
+            mode=args.mode,
+            strength=args.strength,
+            mask_margin=args.mask_margin,
+            local=args.local,
+            api_key_env=args.api_key_env,
+            backend=args.backend,
+            endpoint=args.endpoint,
+            provider=args.provider,
+            pii_text=args.pii_text or args.sensitive,
+            codes=args.codes or args.sensitive,
+            keep_tracks=args.keep,
+            exclude_tracks=args.exclude,
+            keep_metadata=args.keep_metadata,
+            shadow=args.shadow,
+        )
+        return 0
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
+def _process_audio_batch(input_path: Path, output_path: Path, args) -> int:
+    """Batch entry for one audio file, mirroring the single-file audio branch."""
+    from .audio_pipeline import run_audio_pipeline
+
+    try:
+        run_audio_pipeline(
+            input_path=input_path,
+            output_path=output_path,
+            audio_mode=args.audio,
+            pitch_factor=args.pitch_factor,
+            speech_pii=args.speech_pii,
+            speech_soft=args.sensitive,
+            transcript_path=Path(args.transcript) if args.transcript else None,
+            keep_metadata=args.keep_metadata,
+            shadow=args.shadow,
+        )
+        return 0
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
+    except Exception as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 1
+
+
 def main(argv: Optional[List[str]] = None) -> int:
     raw = list(argv) if argv is not None else sys.argv[1:]
     if raw and raw[0] == "doctor":
@@ -237,14 +292,37 @@ def main(argv: Optional[List[str]] = None) -> int:
         if not input_path.is_dir():
             print(f"Error: batch mode needs a directory: {input_path}", file=sys.stderr)
             return 2
+        from .audio_pipeline import SUPPORTED_AUDIO_SUFFIXES
+        from .image_pipeline import SUPPORTED_IMAGE_SUFFIXES
         from .pipeline import SUPPORTED_INPUT_SUFFIXES
-        mp4s = sorted(f for f in input_path.iterdir() if f.is_file() and f.suffix.lower() in SUPPORTED_INPUT_SUFFIXES)
-        if not mp4s:
-            print(f"No supported video files found in {input_path}")
+
+        batch_suffixes = SUPPORTED_INPUT_SUFFIXES | SUPPORTED_IMAGE_SUFFIXES | SUPPORTED_AUDIO_SUFFIXES
+        media_files = sorted(f for f in input_path.iterdir() if f.is_file() and f.suffix.lower() in batch_suffixes)
+        if not media_files:
+            print(f"No supported media files found in {input_path}")
             return 0
         exit_code = 0
         summary_paths: List[Path] = []
-        for mp4 in mp4s:
+        for media in media_files:
+            suffix = media.suffix.lower()
+            if suffix in SUPPORTED_IMAGE_SUFFIXES or suffix in SUPPORTED_AUDIO_SUFFIXES:
+                base_name = (
+                    f"{media.stem}.audit{media.suffix}" if args.shadow else f"{media.stem}.redacted{media.suffix}"
+                )
+                base = (Path(args.output) / base_name) if args.output else media.with_name(base_name)
+                if not args.shadow:
+                    base = unique_output_path(base)
+                if suffix in SUPPORTED_IMAGE_SUFFIXES:
+                    code = _process_photo_batch(media, base, targets, args)
+                else:
+                    code = _process_audio_batch(media, base, args)
+                candidate = base.with_suffix(".summary.json")
+                if code == 0 and candidate.exists():
+                    summary_paths.append(candidate)
+                if code != 0:
+                    exit_code = code
+                continue
+            mp4 = media
             out = None
             if args.output:
                 # In batch mode --output is treated as an output directory
@@ -327,11 +405,16 @@ def main(argv: Optional[List[str]] = None) -> int:
     # Photo mode: image inputs go to the image pipeline, output keeps its format
     if input_path.suffix.lower() in {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif"}:
         from .image_pipeline import run_image_pipeline
-        out = Path(args.output) if args.output else unique_output_path(
-            input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}")
-        )
-        if args.output:
-            out = unique_output_path(out)
+        if args.shadow:
+            out = Path(args.output) if args.output else input_path.with_name(
+                f"{input_path.stem}.audit{input_path.suffix}"
+            )
+        else:
+            out = Path(args.output) if args.output else unique_output_path(
+                input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}")
+            )
+            if args.output:
+                out = unique_output_path(out)
         try:
             run_image_pipeline(
                 input_path=input_path,
@@ -350,6 +433,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 keep_tracks=args.keep,
                 exclude_tracks=args.exclude,
                 keep_metadata=args.keep_metadata,
+                shadow=args.shadow,
             )
             return 0
         except Exception as exc:
