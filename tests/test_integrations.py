@@ -57,10 +57,10 @@ def test_public_api_photo_route(monkeypatch, tmp_path):
     assert result.output_path.endswith("photo.redacted.png")
 
 
-def test_public_api_rejects_bad_options_and_photo_audit(tmp_path):
+def test_public_api_rejects_bad_options_and_bad_photo(tmp_path):
     source = tmp_path / "photo.jpg"
     source.write_bytes(b"photo")
-    with pytest.raises(ValueError, match="currently supports video"):
+    with pytest.raises(ValueError, match="Could not read image"):
         audit_media(source)
     with pytest.raises(ValueError, match="Unknown mode"):
         redact_media(source, mode="smear")

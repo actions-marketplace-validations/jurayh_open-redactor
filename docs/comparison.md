@@ -12,6 +12,7 @@ An honest comparison against the tools people reach for today. Open Redactor is 
 | Location clues (house numbers, street signs) | Yes | No | No | No | No | No |
 | Audio redaction (mute, pitch shift) | Yes | No | No | No | No | No |
 | Spoken PII muting in video audio | Yes | No | No | No | No | No |
+| Per-run report of metadata found and stripped | Yes | No | No | No | No | No |
 | Replace mode with consistent fakes | Yes, stylized | No | No | Photoreal faces | Photoreal | No |
 | Video and photos | Both | Video and images | Video | Both | Video | Images |
 | Shadow audit before rendering | Yes | No | No | No | No | No |

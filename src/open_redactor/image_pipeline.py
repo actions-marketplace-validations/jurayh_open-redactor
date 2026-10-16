@@ -34,16 +34,79 @@ def _load_heif_frame(path: Path) -> np.ndarray:
     return rgb[:, :, ::-1].copy()
 
 
+def _exif_orientation(path: Path) -> int:
+    """The EXIF orientation tag of a photo, 1 when absent or unreadable."""
+    try:
+        from PIL import Image
+
+        with Image.open(path) as img:
+            value = img.getexif().get(274, 1)
+            return int(value) if value else 1
+    except Exception:
+        return 1
+
+
+# Correction transforms keyed by EXIF orientation value. OpenCV decodes
+# the stored pixels and ignores the tag, so without these a rotated
+# phone photo would be detected and redacted sideways.
+_ORIENTATION_FIXES = {
+    2: lambda a: np.fliplr(a),
+    3: lambda a: np.rot90(a, 2),
+    4: lambda a: np.flipud(a),
+    5: lambda a: np.swapaxes(a, 0, 1),
+    6: lambda a: np.rot90(a, 3),
+    7: lambda a: np.rot90(np.swapaxes(a, 0, 1), 2),
+    8: lambda a: np.rot90(a, 1),
+}
+
+
+def apply_exif_orientation(frame: np.ndarray, path: Path) -> np.ndarray:
+    """Rotate or flip a decoded frame to its visual orientation."""
+    fix = _ORIENTATION_FIXES.get(_exif_orientation(path))
+    if fix is None:
+        return frame
+    return fix(frame).copy()
+
+
 def read_photo(path: Path) -> np.ndarray:
     """Read a photo to a BGR array. HEIC and HEIF go through pillow-heif
-    because OpenCV cannot decode them. EXIF orientation is applied so
-    phone photos are processed upright."""
-    frame = cv2.imread(str(path))
+    because OpenCV cannot decode them. EXIF orientation is applied on
+    every path so phone photos are processed upright. Newer OpenCV
+    builds apply the tag inside imread and older ones ignore it, so the
+    decode pins the stored pixels and the correction happens here,
+    identically on every build."""
+    flags = cv2.IMREAD_COLOR
+    if hasattr(cv2, "IMREAD_IGNORE_ORIENTATION"):
+        flags |= cv2.IMREAD_IGNORE_ORIENTATION
+    frame = cv2.imread(str(path), flags)
     if frame is not None:
-        return frame
+        return apply_exif_orientation(frame, path)
     if path.suffix.lower() in HEIC_SUFFIXES:
         return _load_heif_frame(path)
     raise ValueError(f"Could not read image: {path}")
+
+
+def _reattach_exif(source: Path, output: Path) -> None:
+    """Copy source EXIF onto a written photo for --keep-metadata.
+
+    The decoded frame was already transposed upright on read, so the
+    Orientation tag is dropped: keeping it would rotate the photo a
+    second time in viewers.
+    """
+    try:
+        from PIL import Image
+
+        with Image.open(source) as src_img:
+            exif = src_img.getexif()
+            if not exif:
+                return
+            if 274 in exif:
+                del exif[274]
+            exif_bytes = exif.tobytes()
+        with Image.open(output) as out_img:
+            out_img.save(output, exif=exif_bytes)
+    except Exception as exc:
+        print(f"Metadata: could not copy EXIF onto the output ({exc})")
 
 
 def write_photo(path: Path, frame_bgr: np.ndarray) -> None:
@@ -79,6 +142,8 @@ def run_image_pipeline(
     codes: bool = False,
     keep_tracks: Optional[List[str]] = None,
     exclude_tracks: Optional[List[str]] = None,
+    keep_metadata: bool = False,
+    shadow: bool = False,
 ) -> Dict[str, object]:
     frame = read_photo(input_path)
     height, width = frame.shape[:2]
@@ -88,25 +153,37 @@ def run_image_pipeline(
 
     # Detection clients read a file path and the API expects PNG or JPEG
     # bytes, so HEIC inputs are transcoded to a temp PNG for detection
-    # only. Redaction applies to the decoded original frame and the
-    # output keeps the HEIC format.
+    # only. Rotated photos of any format take the same path, because
+    # detection has to run on the upright frame the redaction uses.
+    # Redaction applies to the decoded original frame and the output
+    # keeps the source format.
     segment_path = input_path
     _detect_tmp = None
-    if input_path.suffix.lower() in HEIC_SUFFIXES:
+    if input_path.suffix.lower() in HEIC_SUFFIXES or _exif_orientation(input_path) != 1:
         import tempfile
 
-        _detect_tmp = tempfile.TemporaryDirectory(prefix="open-redactor-heic-")
+        _detect_tmp = tempfile.TemporaryDirectory(prefix="open-redactor-detect-")
         segment_path = Path(_detect_tmp.name) / "detect.png"
         cv2.imwrite(str(segment_path), frame)
 
     resolved_backend = backend or ("local" if local else "api")
     resolved_provider = provider or ("grounding-sam" if resolved_backend == "local" else "sam")
+    if resolved_provider in ("yunet", "owlv2"):
+        resolved_backend = "local"
     client: object
     if resolved_backend == "local":
         if resolved_provider == "grounding-sam":
             from .local_gsam import LocalGroundingSamClient
 
             client = LocalGroundingSamClient()
+        elif resolved_provider == "yunet":
+            from .yunet import YunetFaceClient
+
+            client = YunetFaceClient()
+        elif resolved_provider == "owlv2":
+            from .owlv2 import Owlv2Client
+
+            client = Owlv2Client()
         else:
             client = LocalSamStub()
     else:
@@ -175,6 +252,70 @@ def run_image_pipeline(
                 f"Track keys in this photo: {available}"
             )
 
+    if shadow:
+        # Audit only: report detections, text and code hits, and
+        # metadata findings, then stop before any rendering. Findings
+        # become summary elements so the audit gate can fail on them,
+        # exactly like the video and audio shadow audits.
+        if not sam_sources:
+            shadow_mask_source = "none"
+        elif all(s == "pixel" for s in sam_sources):
+            shadow_mask_source = "pixel"
+        elif all(s == "box" for s in sam_sources):
+            shadow_mask_source = "box"
+        else:
+            shadow_mask_source = "mixed"
+        from .analytics import SEVERITY_WEIGHTS, build_summary, summary_text, write_summary_files
+        from .metadata import inspect_metadata, labels as metadata_labels
+
+        meta_findings = inspect_metadata(input_path)
+        found_labels = metadata_labels(meta_findings)
+        metadata_elements: List[dict] = []
+        for n, finding in enumerate(meta_findings, start=1):
+            level = finding["severity"]
+            metadata_elements.append(
+                {
+                    "track": f"metadata:{finding['label'].lower()}:{n}",
+                    "kind": finding["label"].lower(),
+                    "severity": level,
+                    "severity_weight": SEVERITY_WEIGHTS[level],
+                    "frames_detected": 1,
+                    "first_frame": 0,
+                    "last_frame": 0,
+                    "share_of_clip": 1.0,
+                }
+            )
+        metadata_info = {"found": found_labels, "stripped": False}
+        summary = build_summary(
+            all_tracks,
+            1,
+            shadow=True,
+            kept_visible=left_visible,
+            sam_mask_source=shadow_mask_source,
+            extra_elements=metadata_elements,
+            metadata_info=metadata_info if meta_findings else None,
+        )
+        summary["audio_note"] = "No audio track. Photos carry no sound."
+        paths = write_summary_files(summary, output_path, shadow=True)
+        print(summary_text(summary))
+        print(f"Audit report: {paths['audit']}")
+        print(f"Summary JSON: {paths['json']}")
+        print("Shadow mode: no redacted photo was rendered and the original is untouched.")
+        if _detect_tmp is not None:
+            _detect_tmp.cleanup()
+        return {
+            "input": str(input_path),
+            "output": None,
+            "audit": str(paths["audit"]),
+            "summary": str(paths["json"]),
+            "objects": total_objects,
+            "photo": True,
+            "shadow": True,
+            "kept_visible": left_visible,
+            "sam_mask_source": shadow_mask_source,
+            "metadata": metadata_info,
+        }
+
     if total_objects == 0:
         print("Nothing matched. Writing a clean copy.")
     masks = build_per_frame_masks(
@@ -220,6 +361,25 @@ def run_image_pipeline(
     if _detect_tmp is not None:
         _detect_tmp.cleanup()
     print(f"Wrote: {output_path}")
+
+    # Metadata: decoded frames carry no source tags, so the output is
+    # clean by construction. Inspect anyway, report the findings, and
+    # only carry tags over when the user asked to keep them.
+    from .metadata import inspect_metadata, labels as metadata_labels
+
+    meta_findings = inspect_metadata(input_path)
+    found_labels = metadata_labels(meta_findings)
+    metadata_info = {"found": found_labels, "stripped": bool(meta_findings) and not keep_metadata}
+    if meta_findings:
+        if keep_metadata:
+            _reattach_exif(input_path, output_path)
+            print(f"Metadata: {', '.join(found_labels)} found in the source and kept in the output by request")
+        else:
+            survivors = [l for l in metadata_labels(inspect_metadata(output_path)) if l in found_labels]
+            if survivors:
+                print(f"Metadata warning: {', '.join(survivors)} still present in the output")
+            else:
+                print(f"Metadata: {', '.join(found_labels)} found in the source, stripped from the output")
     if not sam_sources:
         sam_mask_source = "none"
     elif all(s == "pixel" for s in sam_sources):
@@ -228,4 +388,4 @@ def run_image_pipeline(
         sam_mask_source = "box"
     else:
         sam_mask_source = "mixed"
-    return {"input": str(input_path), "output": str(output_path), "objects": total_objects, "photo": True, "kept_visible": left_visible, "sam_mask_source": sam_mask_source}
+    return {"input": str(input_path), "output": str(output_path), "objects": total_objects, "photo": True, "kept_visible": left_visible, "sam_mask_source": sam_mask_source, "metadata": metadata_info}

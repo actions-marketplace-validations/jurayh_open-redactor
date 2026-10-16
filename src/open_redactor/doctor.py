@@ -124,14 +124,42 @@ def run_checks(api_key_env: str = "MODEL_API_KEY") -> List[Tuple[str, Check]]:
     checks.append((OPTIONAL, (
         "Local backend (torch and transformers)",
         local_ok,
-        "local Grounding SAM stack importable" if local_ok else "not installed, the local backend will ask for the extra",
+        "local model stack importable" if local_ok else "not installed, the local backend will ask for the extra",
         'pip install "open-redactor[local]"',
+    )))
+    checks.append((OPTIONAL, (
+        "Open vocabulary provider (OWLv2)",
+        local_ok,
+        "local OWLv2 stack ready, model downloads on first use" if local_ok else "not installed, OWLv2 will ask for the local extra",
+        "use --provider owlv2 after installing the local extra",
     )))
     checks.append((OPTIONAL, (
         "Speech layer (faster-whisper)",
         _importable("faster_whisper"),
         "local transcription available for spoken PII muting" if _importable("faster_whisper") else "not installed, --speech-pii will ask for the extra or a transcript file",
         'pip install "open-redactor[speech]"',
+    )))
+    yunet_ok = False
+    yunet_note = "cv2.FaceDetectorYN unavailable in this OpenCV build"
+    try:
+        import cv2
+
+        from .yunet import model_cache_path
+
+        if hasattr(cv2, "FaceDetectorYN"):
+            yunet_ok = True
+            yunet_note = (
+                "fast face provider ready, model cached"
+                if model_cache_path().exists()
+                else "fast face provider ready, model downloads on first use"
+            )
+    except Exception:
+        pass
+    checks.append((OPTIONAL, (
+        "Fast face provider (YuNet)",
+        yunet_ok,
+        yunet_note,
+        "use --provider yunet, no install needed beyond the base package",
     )))
     server_ok = _importable("fastapi") and _importable("uvicorn")
     checks.append((OPTIONAL, (

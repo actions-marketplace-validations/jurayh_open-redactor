@@ -52,6 +52,8 @@ open-redactor clip.mp4 --preset family --mode pixelate  # re-render free, detect
 
 **Voices.** Audio stays, gets muted, or gets pitch shifted so speech remains but the speaker does not. And with `--speech-pii`, spoken card numbers, Social Security numbers, phone numbers, and emails are found in the transcript and muted in place, verified with the same Luhn and issuing rules as printed text.
 
+**Metadata.** A blurred photo can still carry GPS coordinates, timestamps, and device details in its EXIF, and a video can carry the same in its container tags. Every run inspects the source, strips that data from the output, and reports what it found, or keeps it only when you ask with `--keep-metadata`.
+
 ## Three ways to hide something
 
 | Mode | What you see | Reach for it when |
@@ -121,6 +123,18 @@ pip install "open-redactor[local]"
 open-redactor clip.mp4 --backend local
 ```
 
+**Fast faces.** When the job is just faces, `--provider yunet` runs OpenCV's YuNet detector locally in milliseconds per frame. No torch stack, no API key, only a small model file fetched once and verified against a pinned hash. Faces only, stated plainly: other phrases are skipped with a note.
+
+```bash
+open-redactor clip.mp4 --provider yunet
+```
+
+**Open vocabulary boxes.** `--provider owlv2` runs Google's OWLv2 detector locally from the same local extra. It accepts the same named targets, returns boxes instead of segmentation masks, and links them across frames with IoU tracking. Use it when a local phrase detector matters more than tight mask edges. The summary records the box mask source.
+
+```bash
+open-redactor clip.mp4 --provider owlv2
+```
+
 Pixel-perfect SAM masks decode through @meta-sam/parser when Node is present, with a box fallback that still pads and carries safely.
 
 ## Plug it into your stack
@@ -158,6 +172,12 @@ open-redactor photo.jpg --preset documents --sensitive
 ```
 
 Video inputs cover MP4, MOV, MKV, WebM, AVI, and M4V from phones, OBS, browsers, and older cameras. Output is always MP4. Batch mode takes a whole folder. Output naming never overwrites your original or an earlier redacted copy.
+
+Audio files work on their own too. MP3, WAV, and M4A in, share-safe audio out in the same format. There are no pixels to detect, so the run covers the channels an audio file actually carries: spoken numbers and addresses muted with `--speech-pii`, the whole track silenced or pitch shifted with `--audio`, and container tags inspected and stripped like every other format.
+
+```bash
+open-redactor voice-note.m4a --speech-pii
+```
 
 Prefer clicking? `open-redactor --ui` opens a drag and drop page that runs only on your own machine at 127.0.0.1.
 
@@ -218,6 +238,7 @@ A detector that drops a face for two frames leaks those two frames. So the pipel
 
 ```text
 open-redactor input.mp4 [--output out.mp4]
+  audio inputs (MP3, WAV, M4A) run the speech, audio mode, and metadata layers
   --target PHRASE (repeatable)      --targets-default  --add-target PHRASE
   --preset family|street|screen-share|documents|location
   --mode blur|pixelate|replace      --strength N       --mask-margin N  --carry-frames N
@@ -227,7 +248,8 @@ open-redactor input.mp4 [--output out.mp4]
   --keep TRACK (repeatable)         --exclude TRACK (repeatable)
   --audio keep|mute|pitch          --pitch-factor 0.8
   --speech-pii                      --transcript transcript.json
-  --backend api|hosted|local        --provider sam|grounding-sam
+  --keep-metadata
+  --backend api|hosted|local        --provider sam|grounding-sam|yunet|owlv2
   --endpoint URL                    --api-key-env MODEL_API_KEY
   --no-cache                        --batch            --ui
 ```
@@ -262,10 +284,13 @@ You need ffmpeg and ffprobe on your PATH. From source: clone this repo and `pip 
 
 ## Project layout
 
-- `cli.py` the command line, presets, and routing for video and photos
+- `cli.py` the command line, presets, and routing for video, photos, and audio
 - `pipeline.py` and `image_pipeline.py` ingest, detection, padding, rendering, reports
+- `audio_pipeline.py` audio only runs: speech muting, audio modes, and metadata
 - `sam_client.py` the SAM 3.1 API and hosted client with caching
 - `local_gsam.py` Grounding DINO plus SAM 2 local provider with IoU tracking
+- `owlv2.py` OWLv2 local open vocabulary box provider with IoU tracking
+- `yunet.py` YuNet fast local face provider, the basic tier
 - `masks.py` padding, carry-forward, smoothing, and coverage reports
 - `pii.py`, `codes.py` the text and codes layers
 - `analytics.py`, `replace.py` severity, summaries, shadow audits, and generated stand-ins

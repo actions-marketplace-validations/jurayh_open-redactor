@@ -20,6 +20,10 @@ SAM 3.1 is an open weights model, so Open Redactor does not hard assume one home
 
 **Local backend.** `--backend local` runs Grounding SAM on your own hardware, so private footage never leaves the device. Grounding DINO finds the phrase, SAM 2 cuts the mask, and a small IoU tracker keeps identities stable across frames. Install the heavy stack once with pip install "open-redactor[local]" and run with --provider grounding-sam, which is the default for the local backend. It uses a GPU when one is present and falls back to CPU slowly. Without the optional stack it returns zero matches with a clear install message and never pretends it detected something. A native SAM video propagator and larger model options are the next local upgrades.
 
+For a second local path, `--provider owlv2` runs Google's OWLv2 base ensemble detector on your own hardware from the same local extra. It accepts open vocabulary phrases and returns boxes rather than pixel masks, then links those boxes across frames with the shared IoU tracker. The default score threshold is 0.05, chosen for recall because a missed sensitive object costs more than an extra covered patch. On the public trail group scene that threshold returns 17 person boxes against SAM 3.1's 16 people, while 0.1 returns only 4. The summary records the box mask source, so an OWLv2 run never presents itself as a pixel mask SAM run. Grounding SAM remains the local choice when mask shape matters.
+
+For the simplest job, faces only, `--provider yunet` is the basic tier: OpenCV's YuNet detector runs locally in milliseconds per frame with no torch stack and no API key. The small model file is fetched once into the cache and verified against a pinned SHA-256 before it is ever loaded. It returns boxes rather than pixel masks, and any phrase other than face is skipped with a printed note. On the public showcase scenes it matched or slightly exceeded the SAM face counts at a fraction of the compute, which is the right trade for a quick share-safe pass. The summary records the box mask source, so a fast-tier run never presents itself as a full SAM run.
+
 ## Privacy notes
 
 API and hosted modes send the clip to the endpoint you chose. Local mode and the local page send nothing. SAM results are cached on your machine under your home cache folder so re-renders skip repeat uploads for the same clip and phrase. Use --no-cache to force a fresh pass. Output files are written next to your input with a redacted suffix and never overwrite the original.
@@ -30,6 +34,8 @@ Audio defaults to keep, so the original voices ship unless you choose otherwise.
 
 --speech-pii scans what is said, not just how it sounds. The audio is transcribed locally with faster-whisper (install with `pip install "open-redactor[speech]"`), or you can pass --transcript with a Whisper JSON file from any other tool. Spoken digit sequences are rebuilt from number words and digit tokens and verified before anything is muted: Luhn for card numbers, SSA issuing rules for Social Security numbers. Matched spans are muted with a small margin and listed in the summary with their severity. Asking for the layer explicitly without a transcriber is an error with the fix line, while --sensitive enables it only when a transcriber is present and says so when it skips.
 
+Metadata is handled on every run. The source is inspected for GPS location, creation time, device info, titles, and embedded text, and the output is written without those tags: renders pin the strip explicitly rather than relying on encoder defaults, and the finished file is checked before the run reports success. The summary records what was found and whether it was stripped. --keep-metadata carries the source tags onto the output deliberately for archival workflows, and the findings then appear as elements in the summary, since they remain in the file you would share. Shadow audits list metadata findings as elements too, so the audit gate can fail on a tagged original before anyone shares it by mistake.
+
 Preview renders only the first 3 seconds. A clean preview does not prove the whole clip, the coverage report on the full run is the audit.
 
 Pixel-perfect masks need Node and @meta-sam/parser on the machine. Without them the run falls back to box masks with padding and carry, which is safe but less tight. The summary JSON records which one a run actually used as `sam_mask_source`, so the claim is checkable instead of assumed.
@@ -38,7 +44,7 @@ Blur strength adapts to region size. The default kernel is sized for faces, and 
 
 Detection can miss. Padding, carry-forward, and gap flags reduce the leak risk, and the contact sheet is your final human check. Treat any NEEDS REVIEW line in a coverage report as a stop before sharing.
 
-Video input formats are MP4, MOV, MKV, WebM, AVI, and M4V. Photo inputs are JPG, PNG, WebP, BMP, and HEIC or HEIF, and a photo run writes a redacted photo in the same format using the same targets, presets, and sensitive layers. HEIC is what iPhones shoot by default, and it needs the one-time extra `pip install "open-redactor[heic]"` because OpenCV cannot decode it. Phone photo orientation is applied on read, and a HEIC file is transcoded to a temp PNG for detection only, so the API never sees a format it would reject and your original is never changed. Phones shoot MOV, screen tools emit WebM and MKV, and older cameras write AVI, so all of them are accepted and batch mode picks them all up. Output is always MP4 for share compatibility. Non-MP4 inputs sent to the API or a hosted endpoint are transcoded to a temp MP4 for the upload only, your original file is never changed.
+Video input formats are MP4, MOV, MKV, WebM, AVI, and M4V. Photo inputs are JPG, PNG, WebP, BMP, and HEIC or HEIF, and a photo run writes a redacted photo in the same format using the same targets, presets, and sensitive layers. HEIC is what iPhones shoot by default, and it needs the one-time extra `pip install "open-redactor[heic]"` because OpenCV cannot decode it. Phone photo orientation is applied on read, and a HEIC file is transcoded to a temp PNG for detection only, so the API never sees a format it would reject and your original is never changed. Phones shoot MOV, screen tools emit WebM and MKV, and older cameras write AVI, so all of them are accepted and batch mode picks them all up. Batch mode also picks up photos and audio files in the same folder and runs each through its own pipeline. Output is always MP4 for share compatibility. Non-MP4 inputs sent to the API or a hosted endpoint are transcoded to a temp MP4 for the upload only, your original file is never changed.
 
 ## Sensitive documents
 
@@ -50,7 +56,15 @@ Use --preset documents --pii-text for passports, bank cards, driver licenses, an
 
 ## Analytics, shadow, and replacement
 
-Normal runs print analytics and write a .summary.json. --shadow runs detection only and writes an .audit.txt with severity per element, so start with a shadow audit on anything sensitive or unfamiliar. --mode replace swaps regions for generated stand-ins instead of masking, with per track deterministic fakes. Shadow first, replace when the natural feel matters, blur when it does not.
+Normal runs print analytics and write a .summary.json. --shadow runs detection only and writes an .audit.txt with severity per element, so start with a shadow audit on anything sensitive or unfamiliar. Shadow audits work on photos too, with detections, text and code hits, and metadata findings listed as elements and nothing rendered. --mode replace swaps regions for generated stand-ins instead of masking, with per track deterministic fakes. Shadow first, replace when the natural feel matters, blur when it does not.
+
+## Audio only files
+
+MP3, WAV, and M4A files are inputs in their own right, for voice notes, dictated messages, call recordings, and podcast clips that never had a picture. The output keeps the input format and the usual safe naming, and the run covers the three channels an audio file carries.
+
+Spoken PII works exactly as it does on a video track. `--speech-pii` transcribes locally with the speech extra, or `--transcript` takes a Whisper JSON with word timings, and verified card numbers, SSNs, phone numbers, and emails are muted in place and reported as `speech:<kind>:<n>` elements in the summary. `--sensitive` enables the layer when a transcriber is present. The whole track modes apply too: `--audio mute` writes a silent copy, and `--audio pitch` with `--pitch-factor` disguises the voice with tempo preserved.
+
+Container tags get the same treatment as video. ID3 and MP4 tags are inspected before the run, stripped from the output by default with the findings reported in the summary metadata block, and kept only with `--keep-metadata`. A shadow audit with `--shadow` renders nothing and lists speech hits and metadata findings as elements, so the audit gate can fail on a tagged or revealing original before anyone shares it.
 
 ## Keep or exclude a track
 

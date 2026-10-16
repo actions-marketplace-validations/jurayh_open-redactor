@@ -68,16 +68,16 @@ def audit_files(
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="open-redactor-audit",
-        description="Audit videos and fail CI or a pre-commit hook when sensitive elements are found",
+        description="Audit media files and fail CI or a pre-commit hook when sensitive elements are found",
     )
-    parser.add_argument("paths", nargs="+", help="Video files to audit")
+    parser.add_argument("paths", nargs="+", help="Video or audio files to audit")
     parser.add_argument("--fail-on", choices=sorted(SEVERITY_ORDER), default="medium")
     parser.add_argument("--output-dir", default=None, help="Keep audit reports and summaries in this directory")
     parser.add_argument("--preset", choices=["family", "street", "screen-share", "documents", "location"], default=None)
     parser.add_argument("--target", action="append", default=None, help="Add one phrase. Can be repeated")
     parser.add_argument("--backend", choices=["api", "hosted", "local"], default=None)
     parser.add_argument("--endpoint", default=None)
-    parser.add_argument("--provider", choices=["sam", "grounding-sam"], default=None)
+    parser.add_argument("--provider", choices=["sam", "grounding-sam", "yunet", "owlv2"], default=None)
     parser.add_argument("--local", action="store_true")
     parser.add_argument("--api-key-env", default="MODEL_API_KEY")
     parser.add_argument("--no-cache", action="store_true")
@@ -89,6 +89,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--exclude", action="append", default=None, help="Drop a named track from the audit. Can be repeated")
     parser.add_argument("--speech-pii", action="store_true", help="Also scan the audio for spoken card numbers, SSNs, phone numbers, and emails")
     parser.add_argument("--transcript", default=None, help="Whisper JSON transcript with word timings for the speech layer")
+    parser.add_argument("--keep-metadata", action="store_true", help="Treat source metadata as kept rather than stripped (audits report findings either way)")
     return parser
 
 
@@ -111,6 +112,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         exclude=args.exclude,
         speech_pii=args.speech_pii,
         transcript_path=args.transcript,
+        keep_metadata=args.keep_metadata,
     )
     return audit_files(args.paths, options=options, fail_on=args.fail_on, output_dir=args.output_dir)
 

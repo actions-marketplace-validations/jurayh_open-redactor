@@ -44,7 +44,7 @@ _OPTION_SCHEMA: dict[str, Any] = {
     "carry_frames": {"type": "integer", "minimum": 0, "default": 4},
     "backend": {"type": "string", "enum": ["api", "hosted", "local"]},
     "endpoint": {"type": "string", "description": "Hosted Responses API endpoint."},
-    "provider": {"type": "string", "enum": ["sam", "grounding-sam"]},
+    "provider": {"type": "string", "enum": ["sam", "grounding-sam", "yunet", "owlv2"]},
     "local": {"type": "boolean", "default": False},
     "api_key_env": {
         "type": "string",
@@ -69,6 +69,8 @@ _OPTION_SCHEMA: dict[str, Any] = {
     },
     "speech_pii": {"type": "boolean", "default": False, "description": "Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails."},
     "transcript_path": {"type": "string", "description": "Path to a Whisper JSON transcript with word timings to use for the speech layer instead of transcribing."},
+    "keep_metadata": {"type": "boolean", "default": False, "description": "Keep source metadata (EXIF and container tags) in the output instead of stripping it."},
+    "quiet": {"type": "boolean", "default": False, "description": "Route pipeline progress output to the open_redactor logger instead of stdout."},
 }
 
 TOOLS: list[dict[str, Any]] = [

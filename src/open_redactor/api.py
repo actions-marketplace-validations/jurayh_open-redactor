@@ -8,17 +8,24 @@ shell out to the CLI.
 
 from __future__ import annotations
 
+import contextlib
+import io
 import json
+import logging
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Any, Mapping, Optional, Sequence
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".heic", ".heif"}
 VIDEO_SUFFIXES = {".mp4", ".mov", ".mkv", ".webm", ".avi", ".m4v"}
+AUDIO_SUFFIXES = {".mp3", ".wav", ".m4a"}
 REDACTION_MODES = {"blur", "pixelate", "replace"}
 AUDIO_MODES = {"keep", "mute", "pitch"}
 BACKENDS = {"api", "hosted", "local"}
-PROVIDERS = {"sam", "grounding-sam"}
+PROVIDERS = {"sam", "grounding-sam", "yunet", "owlv2"}
+LOCAL_ONLY_PROVIDERS = {"grounding-sam", "yunet", "owlv2"}
+
+logger = logging.getLogger("open_redactor")
 
 
 @dataclass(frozen=True)
@@ -46,6 +53,8 @@ class RedactionOptions:
     exclude: Optional[Sequence[str]] = None
     speech_pii: bool = False
     transcript_path: Optional[str] = None
+    keep_metadata: bool = False
+    quiet: bool = False
 
     def validate(self) -> None:
         if self.mode not in REDACTION_MODES:
@@ -55,7 +64,13 @@ class RedactionOptions:
         if self.backend is not None and self.backend not in BACKENDS:
             raise ValueError(f"Unknown backend '{self.backend}'. Choose api, hosted, or local.")
         if self.provider is not None and self.provider not in PROVIDERS:
-            raise ValueError(f"Unknown provider '{self.provider}'. Choose sam or grounding-sam.")
+            raise ValueError(f"Unknown provider '{self.provider}'. Choose sam, grounding-sam, yunet, or owlv2.")
+        if self.local and self.backend is not None and self.backend != "local":
+            raise ValueError(f"Conflicting options: local=True with backend '{self.backend}'. Drop one of them.")
+        if self.provider in LOCAL_ONLY_PROVIDERS and self.backend is not None and self.backend != "local":
+            raise ValueError(f"Provider '{self.provider}' runs locally. Use backend 'local' or leave backend unset.")
+        if self.provider == "sam" and self.backend == "local":
+            raise ValueError("Provider 'sam' talks to a remote SAM 3.1 endpoint. Use backend 'api' or 'hosted', or provider 'grounding-sam', 'owlv2', or 'yunet' for a local run.")
         if self.strength <= 0:
             raise ValueError("strength must be positive")
         if self.mask_margin < 0:
@@ -105,6 +120,26 @@ def _coerce_options(
     return result
 
 
+def _run(opts: RedactionOptions, fn: Any, **kwargs: Any) -> Any:
+    """Call a pipeline function, honoring the quiet option.
+
+    Pipelines report progress with print. Callers who set quiet=True
+    get that output routed to the ``open_redactor`` logger at debug
+    level instead of stdout, so the API can sit inside a service
+    without polluting its logs or response stream.
+    """
+    if not opts.quiet:
+        return fn(**kwargs)
+    buffer = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buffer):
+            return fn(**kwargs)
+    finally:
+        captured = buffer.getvalue().strip()
+        if captured:
+            logger.debug("Pipeline output:\n%s", captured)
+
+
 def _resolve_targets(options: RedactionOptions) -> list[str]:
     from .presets import PRESETS, apply_preset
     from .sam_client import resolve_targets
@@ -130,7 +165,7 @@ def _unique_output_path(path: Path) -> Path:
 
 
 def _default_output_path(input_path: Path) -> Path:
-    if input_path.suffix.lower() in IMAGE_SUFFIXES:
+    if input_path.suffix.lower() in IMAGE_SUFFIXES | AUDIO_SUFFIXES:
         return _unique_output_path(input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}"))
     return _unique_output_path(input_path.with_name(f"{input_path.stem}.redacted.mp4"))
 
@@ -177,11 +212,12 @@ def redact_media(
     report: bool = True,
     **option_overrides: Any,
 ) -> RedactionResult:
-    """Redact one video or photo and return paths plus run analytics.
+    """Redact one video, photo, or audio file and return paths plus analytics.
 
     ``targets`` may be supplied through ``options`` or as a keyword override.
     When neither targets nor a preset is supplied, the product default target
-    set is used.
+    set is used. Audio inputs ignore visual targets and run the speech,
+    audio mode, and metadata layers instead.
     """
 
     opts = _coerce_options(options, option_overrides)
@@ -191,20 +227,37 @@ def redact_media(
     if source.is_dir():
         raise ValueError("redact_media handles one file. Iterate over a directory or use the CLI batch mode.")
     suffix = source.suffix.lower()
-    if suffix not in IMAGE_SUFFIXES | VIDEO_SUFFIXES:
-        supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES))
+    if suffix not in IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES:
+        supported = ", ".join(sorted(IMAGE_SUFFIXES | VIDEO_SUFFIXES | AUDIO_SUFFIXES))
         raise ValueError(f"Unsupported input format '{source.suffix}'. Supported inputs: {supported}.")
 
     targets = _resolve_targets(opts)
     destination = _choose_output_path(source, output_path)
     sensitive = opts.sensitive
 
+    if suffix in AUDIO_SUFFIXES:
+        if preview:
+            raise ValueError("Preview mode is available for video, not audio files.")
+        from .audio_pipeline import run_audio_pipeline
+
+        details = _run(opts, run_audio_pipeline,
+            input_path=source,
+            output_path=destination,
+            audio_mode=opts.audio_mode,
+            pitch_factor=opts.pitch_factor,
+            speech_pii=opts.speech_pii,
+            speech_soft=sensitive,
+            transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+            keep_metadata=opts.keep_metadata,
+        )
+        return _result_from_details(source, details)
+
     if suffix in IMAGE_SUFFIXES:
         if preview:
             raise ValueError("Preview mode is available for video, not photos.")
         from .image_pipeline import run_image_pipeline
 
-        details = run_image_pipeline(
+        details = _run(opts, run_image_pipeline,
             input_path=source,
             output_path=destination,
             targets=targets,
@@ -220,12 +273,13 @@ def redact_media(
             codes=opts.codes or sensitive,
             keep_tracks=list(opts.keep) if opts.keep else None,
             exclude_tracks=list(opts.exclude) if opts.exclude else None,
+            keep_metadata=opts.keep_metadata,
         )
         return _result_from_details(source, details)
 
     from .pipeline import run_pipeline
 
-    details = run_pipeline(
+    details = _run(opts, run_pipeline,
         input_path=source,
         output_path=destination,
         targets=targets,
@@ -252,6 +306,7 @@ def redact_media(
         speech_pii=opts.speech_pii,
         speech_soft=sensitive,
         transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+        keep_metadata=opts.keep_metadata,
     )
     return _result_from_details(source, details)
 
@@ -262,11 +317,10 @@ def audit_media(
     options: Optional[RedactionOptions | Mapping[str, Any]] = None,
     **option_overrides: Any,
 ) -> RedactionResult:
-    """Audit one video without rendering a redacted copy.
+    """Audit one video, photo, or audio file without rendering a copy.
 
-    The returned result points to the text audit and JSON summary produced by
-    the pipeline. Photo shadow audits are not part of the current pipeline, so
-    photo inputs raise a clear error instead of returning a partial audit.
+    The returned result points to the text audit and JSON summary produced
+    by the pipeline for the input type.
     """
 
     opts = _coerce_options(options, option_overrides)
@@ -274,7 +328,45 @@ def audit_media(
     if not source.exists():
         raise FileNotFoundError(f"Input not found: {source}")
     if source.suffix.lower() in IMAGE_SUFFIXES:
-        raise ValueError("audit_media currently supports video. Use redact_media for photos.")
+        audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
+        from .image_pipeline import run_image_pipeline
+
+        details = _run(opts, run_image_pipeline,
+            input_path=source,
+            output_path=audit_base,
+            targets=_resolve_targets(opts),
+            mode=opts.mode,
+            strength=opts.strength,
+            mask_margin=opts.mask_margin,
+            local=opts.local,
+            api_key_env=opts.api_key_env,
+            backend=opts.backend,
+            endpoint=opts.endpoint,
+            provider=opts.provider,
+            pii_text=opts.pii_text or opts.sensitive,
+            codes=opts.codes or opts.sensitive,
+            keep_tracks=list(opts.keep) if opts.keep else None,
+            exclude_tracks=list(opts.exclude) if opts.exclude else None,
+            keep_metadata=opts.keep_metadata,
+            shadow=True,
+        )
+        return _result_from_details(source, details)
+    if source.suffix.lower() in AUDIO_SUFFIXES:
+        audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
+        from .audio_pipeline import run_audio_pipeline
+
+        details = _run(opts, run_audio_pipeline,
+            input_path=source,
+            output_path=audit_base,
+            audio_mode=opts.audio_mode,
+            pitch_factor=opts.pitch_factor,
+            speech_pii=opts.speech_pii,
+            speech_soft=opts.sensitive,
+            transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+            keep_metadata=opts.keep_metadata,
+            shadow=True,
+        )
+        return _result_from_details(source, details)
     if source.suffix.lower() not in VIDEO_SUFFIXES:
         raise ValueError(f"Unsupported video format '{source.suffix}'.")
 
@@ -282,7 +374,7 @@ def audit_media(
     audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit.mp4")
     from .pipeline import run_pipeline
 
-    details = run_pipeline(
+    details = _run(opts, run_pipeline,
         input_path=source,
         output_path=audit_base,
         targets=targets,
@@ -309,6 +401,7 @@ def audit_media(
         speech_pii=opts.speech_pii,
         speech_soft=opts.sensitive,
         transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
+        keep_metadata=opts.keep_metadata,
     )
     return _result_from_details(source, details)
 
@@ -320,8 +413,10 @@ audit = audit_media
 
 __all__ = [
     "AUDIO_MODES",
+    "AUDIO_SUFFIXES",
     "BACKENDS",
     "IMAGE_SUFFIXES",
+    "LOCAL_ONLY_PROVIDERS",
     "PROVIDERS",
     "REDACTION_MODES",
     "VIDEO_SUFFIXES",
