@@ -144,6 +144,7 @@ def run_image_pipeline(
     exclude_tracks: Optional[List[str]] = None,
     keep_metadata: bool = False,
     shadow: bool = False,
+    location_audit: bool = False,
 ) -> Dict[str, object]:
     frame = read_photo(input_path)
     height, width = frame.shape[:2]
@@ -286,6 +287,16 @@ def run_image_pipeline(
                 }
             )
         metadata_info = {"found": found_labels, "stripped": False}
+        location_info = None
+        if location_audit:
+            from .location_audit import run_location_audit
+
+            location_info = run_location_audit(
+                image_path=input_path,
+                api_key_env=api_key_env,
+                endpoint=endpoint,
+                basis="source photo",
+            )
         summary = build_summary(
             all_tracks,
             1,
@@ -294,6 +305,7 @@ def run_image_pipeline(
             sam_mask_source=shadow_mask_source,
             extra_elements=metadata_elements,
             metadata_info=metadata_info if meta_findings else None,
+            location_info=location_info,
         )
         summary["audio_note"] = "No audio track. Photos carry no sound."
         paths = write_summary_files(summary, output_path, shadow=True)
@@ -314,6 +326,7 @@ def run_image_pipeline(
             "kept_visible": left_visible,
             "sam_mask_source": shadow_mask_source,
             "metadata": metadata_info,
+            "location_audit": location_info,
         }
 
     if total_objects == 0:
@@ -388,4 +401,34 @@ def run_image_pipeline(
         sam_mask_source = "box"
     else:
         sam_mask_source = "mixed"
-    return {"input": str(input_path), "output": str(output_path), "objects": total_objects, "photo": True, "kept_visible": left_visible, "sam_mask_source": sam_mask_source, "metadata": metadata_info}
+    location_info = None
+    summary_path = None
+    if location_audit:
+        # The estimate needs a durable home, so an audit run also writes
+        # the summary files a shadow audit would write, in render mode.
+        from .analytics import build_summary, write_summary_files
+        from .location_audit import run_location_audit
+        from .location_audit import text_lines as location_text_lines
+
+        location_info = run_location_audit(
+            image_path=output_path,
+            api_key_env=api_key_env,
+            endpoint=endpoint,
+            basis="processed photo",
+        )
+        for line in location_text_lines(location_info):
+            print(line)
+        photo_summary = build_summary(
+            all_tracks,
+            1,
+            shadow=False,
+            kept_visible=left_visible,
+            sam_mask_source=sam_mask_source,
+            metadata_info=metadata_info,
+            location_info=location_info,
+        )
+        photo_summary["audio_note"] = "No audio track. Photos carry no sound."
+        summary_paths = write_summary_files(photo_summary, output_path, shadow=False)
+        summary_path = str(summary_paths["json"])
+        print(f"Summary JSON: {summary_path}")
+    return {"input": str(input_path), "output": str(output_path), "objects": total_objects, "photo": True, "kept_visible": left_visible, "sam_mask_source": sam_mask_source, "metadata": metadata_info, "location_audit": location_info, "summary": summary_path}

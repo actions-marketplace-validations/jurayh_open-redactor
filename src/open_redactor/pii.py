@@ -1,11 +1,15 @@
 """Text PII detection for frames.
 
 Two layers. Pattern matching on OCR text finds card numbers, US Social
-Security numbers, phone numbers, and emails. Card numbers are verified
-with the Luhn check so random long numbers do not get flagged. OCR is
-optional and lazy through pytesseract plus the tesseract binary. When
-OCR is not installed the scanner returns nothing with a clear message
-and never invents detections.
+Security numbers, phone numbers, emails, and GPS coordinate pairs of
+the kind dashcams and camera apps burn into a frame as an overlay.
+Card numbers are verified with the Luhn check so random long numbers
+do not get flagged. Coordinate pairs must carry at least four decimal
+places on both numbers and pass range checks, so prices, dimensions,
+and version strings do not get flagged. OCR is optional and lazy
+through pytesseract plus the tesseract binary. When OCR is not
+installed the scanner returns nothing with a clear message and never
+invents detections.
 """
 
 from __future__ import annotations
@@ -29,6 +33,43 @@ CARD_RE = re.compile(r"(?<!\d)(?:\d[ -]?){12,18}\d(?!\d)")
 SSN_RE = re.compile(r"(?<!\d)(\d{3})-(\d{2})-(\d{4})(?!\d)")
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
+# Decimal coordinate pairs as printed by dashcam and camera overlays:
+# "-30.920099 146.96307E", "37.774929, -122.419418", "N 51.50722 W 0.12750".
+# Both numbers need at least four decimal places; _valid_coordinate_pair
+# then enforces latitude and longitude ranges in either order.
+GPS_PAIR_RE = re.compile(
+    r"(?<![\d.])"
+    r"([NSEW])?\s*([+-]?\d{1,3}\.\d{4,})\s*([NSEW])?"
+    r"\s*[, ]\s*"
+    r"([NSEW])?\s*([+-]?\d{1,3}\.\d{4,})\s*([NSEW])?"
+    r"(?![\d.])"
+)
+
+
+def _coordinate_value(number: str, hemi_before: str, hemi_after: str) -> float:
+    value = float(number)
+    hemi = (hemi_after or hemi_before or "").upper()
+    if hemi in ("S", "W"):
+        value = -abs(value)
+    return value
+
+
+def _valid_coordinate_pair(m: re.Match) -> bool:
+    """Range-check a candidate pair in lat,lon or lon,lat order.
+
+    A pair of exact zeros is the no-fix placeholder overlays print
+    before satellite lock, not a location, so it is rejected.
+    """
+    try:
+        first = _coordinate_value(m.group(2), m.group(1), m.group(3))
+        second = _coordinate_value(m.group(5), m.group(4), m.group(6))
+    except (TypeError, ValueError):
+        return False
+    if first == 0.0 and second == 0.0:
+        return False
+    if abs(first) <= 90 and abs(second) <= 180:
+        return True
+    return abs(first) <= 180 and abs(second) <= 90
 
 
 def luhn_ok(digits: str) -> bool:
@@ -67,6 +108,13 @@ def find_pii_in_text(text: str) -> List[PiiHit]:
             continue
         if free(m.start(), m.end()):
             hits.append(PiiHit("ssn", m.group(0), m.start(), m.end()))
+            taken.append((m.start(), m.end()))
+    for m in GPS_PAIR_RE.finditer(text):
+        # Runs before the card pass: a coordinate pair is a run of digits
+        # and spaces that a Luhn check could claim by chance, and the pair
+        # is a location either way.
+        if _valid_coordinate_pair(m) and free(m.start(), m.end()):
+            hits.append(PiiHit("gps coordinates", m.group(0), m.start(), m.end()))
             taken.append((m.start(), m.end()))
     for m in CARD_RE.finditer(text):
         digits = re.sub(r"\D", "", m.group(0))

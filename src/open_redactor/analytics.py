@@ -34,6 +34,7 @@ SEVERITY_MAP = {
     "mailbox": "medium",
     "lanyard": "medium",
     "gps location": "high",
+    "gps coordinates": "high",
     "creation time": "medium",
     "device info": "medium",
     "title and description": "medium",
@@ -69,6 +70,7 @@ def build_summary(
     sam_mask_source: str = "none",
     extra_elements: Optional[List[dict]] = None,
     metadata_info: Optional[dict] = None,
+    location_info: Optional[dict] = None,
 ) -> dict:
     elements: List[dict] = []
     frames_with_hits: set[int] = set()
@@ -121,6 +123,7 @@ def build_summary(
         "kept_visible": list(kept_visible or []),
         "sam_mask_source": sam_mask_source,
         "metadata": metadata_info,
+        "location_audit": location_info,
         "elements": elements,
     }
 
@@ -156,6 +159,11 @@ def summary_text(summary: dict) -> str:
             lines.append(f"Metadata: {found} found in the source, reported only, nothing was rendered")
         else:
             lines.append(f"Metadata: {found} found in the source and kept in the output by request")
+    location = summary.get("location_audit")
+    if location:
+        from .location_audit import text_lines as location_text_lines
+
+        lines.extend(location_text_lines(location))
     if summary.get("kept_visible"):
         lines.append(f"Left visible by request, not redacted: {', '.join(summary['kept_visible'])}")
     if summary["elements"]:

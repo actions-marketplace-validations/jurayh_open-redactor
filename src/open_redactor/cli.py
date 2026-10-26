@@ -41,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--audio", choices=["keep", "mute", "pitch"], default="keep", help="Audio redaction: keep the original track, mute it, or pitch shift voices")
     p.add_argument("--speech-pii", action="store_true", help="Transcribe the audio locally and mute spoken card numbers, SSNs, phone numbers, and emails")
     p.add_argument("--keep-metadata", action="store_true", help="Keep source metadata (EXIF and container tags) in the output instead of stripping it")
+    p.add_argument("--location-audit", action="store_true", help="Also estimate how locatable the processed output still is from its pixels with a geolocation model on the API, and record the estimate and the cues it used in the summary. Off by default because it sends the output (or one sampled frame of it) to the API. Photos and videos only")
     p.add_argument("--transcript", default=None, help="Use a Whisper JSON transcript with word timings for the speech layer instead of transcribing")
     p.add_argument("--pitch-factor", type=float, default=0.8, help="Pitch multiplier for --audio pitch. Below 1 deepens, above 1 raises")
     p.add_argument("--provider", choices=["sam", "grounding-sam", "yunet", "owlv2"], default=None, help="Model provider: SAM via API or hosted, Grounding SAM locally, YuNet fast local faces, or OWLv2 local boxes")
@@ -139,6 +140,7 @@ def process_one(
     speech_soft: bool = False,
     transcript_path: Optional[Path] = None,
     keep_metadata: bool = False,
+    location_audit: bool = False,
 ) -> int:
     out = output_path if output_path else default_output_path(input_path)
     if output_path is not None:
@@ -176,6 +178,7 @@ def process_one(
             speech_soft=speech_soft,
             transcript_path=transcript_path,
             keep_metadata=keep_metadata,
+            location_audit=location_audit,
         )
         return 0
     except FileNotFoundError as exc:
@@ -212,6 +215,7 @@ def _process_photo_batch(input_path: Path, output_path: Path, targets: List[str]
             exclude_tracks=args.exclude,
             keep_metadata=args.keep_metadata,
             shadow=args.shadow,
+            location_audit=args.location_audit,
         )
         return 0
     except Exception as exc:
@@ -224,6 +228,8 @@ def _process_audio_batch(input_path: Path, output_path: Path, args) -> int:
     from .audio_pipeline import run_audio_pipeline
 
     try:
+        if args.location_audit:
+            raise ValueError("location_audit estimates location from pixels, so it applies to photos and videos, not audio files.")
         run_audio_pipeline(
             input_path=input_path,
             output_path=output_path,
@@ -357,6 +363,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 speech_soft=args.sensitive,
                 transcript_path=Path(args.transcript) if args.transcript else None,
                 keep_metadata=args.keep_metadata,
+                location_audit=args.location_audit,
             )
             candidate = expected_out.with_suffix(".summary.json")
             if code == 0 and candidate.exists():
@@ -374,6 +381,9 @@ def main(argv: Optional[List[str]] = None) -> int:
         from .audio_pipeline import run_audio_pipeline
         if not input_path.exists():
             print(f"Error: Input not found: {input_path}", file=sys.stderr)
+            return 2
+        if args.location_audit:
+            print("Error: --location-audit estimates location from pixels, so it applies to photos and videos, not audio files.", file=sys.stderr)
             return 2
         out = Path(args.output) if args.output else unique_output_path(
             input_path.with_name(f"{input_path.stem}.redacted{input_path.suffix}")
@@ -434,6 +444,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 exclude_tracks=args.exclude,
                 keep_metadata=args.keep_metadata,
                 shadow=args.shadow,
+                location_audit=args.location_audit,
             )
             return 0
         except Exception as exc:
@@ -477,6 +488,7 @@ def main(argv: Optional[List[str]] = None) -> int:
         speech_soft=args.sensitive,
         transcript_path=Path(args.transcript) if args.transcript else None,
         keep_metadata=args.keep_metadata,
+        location_audit=args.location_audit,
     )
 
 

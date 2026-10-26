@@ -383,11 +383,12 @@
         <div class="grid-3">
           <article class="card"><div class="icon">◉</div><h3>People and faces</h3><p>Prompt for a person, a face, or another object in plain words. Tracks are padded and carried through brief dropouts.</p></article>
           <article class="card"><div class="icon">▤</div><h3>Documents</h3><p>Passports, credit cards, driver licenses, ID cards, documents, and name badges with the documents preset.</p></article>
-          <article class="card"><div class="icon">⌗</div><h3>Printed secrets</h3><p>OCR finds card numbers, Social Security numbers, phone numbers, and emails. Card numbers must pass the Luhn check before they count.</p></article>
+          <article class="card"><div class="icon">⌗</div><h3>Printed secrets</h3><p>OCR finds card numbers, Social Security numbers, phone numbers, emails, and GPS coordinate stamps burned into the frame. Card numbers must pass the Luhn check before they count.</p></article>
           <article class="card"><div class="icon">▦</div><h3>Codes</h3><p>QR codes and barcodes can carry payment links, Wi-Fi passwords, and contact cards. Code regions get an opaque fill before any blur.</p></article>
           <article class="card"><div class="icon">⌖</div><h3>Location clues</h3><p>Signs, house numbers, mailboxes, and plates are often the detail that turns a nice photo into a map pin.</p></article>
           <article class="card"><div class="icon">♪</div><h3>Voices and spoken secrets</h3><p>Keep the audio, mute it, or pitch shift it. And with the speech layer, a dictated phone number, card number, or email is found in the transcript and muted in place.</p></article>
           <article class="card"><div class="icon">◍</div><h3>The invisible layer</h3><p>GPS coordinates, timestamps, and device details ride inside photo EXIF and video tags. Every run inspects the source, strips them from the output, and reports what it found.</p></article>
+          <article class="card"><div class="icon">◈</div><h3>Location audit</h3><p>Redaction cannot unbuild a skyline. With --location-audit, a geolocation model tries to place the finished output and the summary records the estimate and the cues it used, so you see the exposure that remains instead of assuming there is none.</p></article>
           <article class="card"><div class="icon">♫</div><h3>Audio files</h3><p>Voice memos and recordings are inputs too. MP3, WAV, and M4A files get spoken secrets muted, the whole track silenced or pitch shifted on request, and ID3 tags stripped and reported.</p></article>
         </div>
       </div>

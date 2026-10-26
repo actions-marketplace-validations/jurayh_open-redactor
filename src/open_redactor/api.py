@@ -54,6 +54,7 @@ class RedactionOptions:
     speech_pii: bool = False
     transcript_path: Optional[str] = None
     keep_metadata: bool = False
+    location_audit: bool = False
     quiet: bool = False
 
     def validate(self) -> None:
@@ -71,6 +72,12 @@ class RedactionOptions:
             raise ValueError(f"Provider '{self.provider}' runs locally. Use backend 'local' or leave backend unset.")
         if self.provider == "sam" and self.backend == "local":
             raise ValueError("Provider 'sam' talks to a remote SAM 3.1 endpoint. Use backend 'api' or 'hosted', or provider 'grounding-sam', 'owlv2', or 'yunet' for a local run.")
+        if self.location_audit and self.local:
+            raise ValueError("location_audit sends the output to a model API estimator, so it cannot run with local=True. Drop one of them.")
+        if self.location_audit and self.backend == "local":
+            raise ValueError("location_audit sends the output to a model API estimator, so it cannot run on the local backend. Use backend 'api' or 'hosted'.")
+        if self.location_audit and self.provider in LOCAL_ONLY_PROVIDERS:
+            raise ValueError(f"location_audit needs the API estimator, but provider '{self.provider}' runs locally. Use provider 'sam' or leave provider unset.")
         if self.strength <= 0:
             raise ValueError("strength must be positive")
         if self.mask_margin < 0:
@@ -238,6 +245,8 @@ def redact_media(
     if suffix in AUDIO_SUFFIXES:
         if preview:
             raise ValueError("Preview mode is available for video, not audio files.")
+        if opts.location_audit:
+            raise ValueError("location_audit estimates location from pixels, so it applies to photos and videos, not audio files.")
         from .audio_pipeline import run_audio_pipeline
 
         details = _run(opts, run_audio_pipeline,
@@ -274,6 +283,7 @@ def redact_media(
             keep_tracks=list(opts.keep) if opts.keep else None,
             exclude_tracks=list(opts.exclude) if opts.exclude else None,
             keep_metadata=opts.keep_metadata,
+            location_audit=opts.location_audit,
         )
         return _result_from_details(source, details)
 
@@ -307,6 +317,7 @@ def redact_media(
         speech_soft=sensitive,
         transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
         keep_metadata=opts.keep_metadata,
+        location_audit=opts.location_audit,
     )
     return _result_from_details(source, details)
 
@@ -349,9 +360,12 @@ def audit_media(
             exclude_tracks=list(opts.exclude) if opts.exclude else None,
             keep_metadata=opts.keep_metadata,
             shadow=True,
+            location_audit=opts.location_audit,
         )
         return _result_from_details(source, details)
     if source.suffix.lower() in AUDIO_SUFFIXES:
+        if opts.location_audit:
+            raise ValueError("location_audit estimates location from pixels, so it applies to photos and videos, not audio files.")
         audit_base = Path(output_path).expanduser() if output_path else source.with_name(f"{source.stem}.audit{source.suffix}")
         from .audio_pipeline import run_audio_pipeline
 
@@ -402,6 +416,7 @@ def audit_media(
         speech_soft=opts.sensitive,
         transcript_path=Path(opts.transcript_path) if opts.transcript_path else None,
         keep_metadata=opts.keep_metadata,
+        location_audit=opts.location_audit,
     )
     return _result_from_details(source, details)
 
