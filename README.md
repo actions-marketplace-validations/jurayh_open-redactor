@@ -44,7 +44,7 @@ open-redactor clip.mp4 --preset family --mode pixelate  # re-render free, detect
 
 **Sensitive documents.** Passports, credit cards, driver licenses, ID cards, documents, and name badges with the documents preset.
 
-**Printed secrets.** The text layer OCRs frames and covers verified credit card numbers, Social Security numbers, phone numbers, and emails. Card numbers must pass the Luhn check, so order numbers stay untouched.
+**Printed secrets.** The text layer OCRs frames and covers verified credit card numbers, Social Security numbers, phone numbers, emails, and GPS coordinate stamps of the kind dashcams burn into a frame. Card numbers must pass the Luhn check, so order numbers stay untouched.
 
 **Codes.** QR codes and barcodes, which carry Wi-Fi passwords, payment links, and contact cards. Code regions get an opaque fill in blur and pixelate modes because a blurred QR pattern can still be thresholded and decoded.
 
@@ -53,6 +53,8 @@ open-redactor clip.mp4 --preset family --mode pixelate  # re-render free, detect
 **Voices.** Audio stays, gets muted, or gets pitch shifted so speech remains but the speaker does not. And with `--speech-pii`, spoken card numbers, Social Security numbers, phone numbers, and emails are found in the transcript and muted in place, verified with the same Luhn and issuing rules as printed text.
 
 **Metadata.** A blurred photo can still carry GPS coordinates, timestamps, and device details in its EXIF, and a video can carry the same in its container tags. Every run inspects the source, strips that data from the output, and reports what it found, or keeps it only when you ask with `--keep-metadata`.
+
+**Location audit.** Redaction removes the objects you name. It cannot unbuild a skyline, and signage, architecture, vegetation, and road furniture can still place a photo after every named object is covered. With `--location-audit`, a geolocation model on the API tries to place the processed output (one sampled frame for video) and the summary records the estimate, the model's stated confidence, and the cues it used. The wording is deliberate: redaction reduces locatability, it does not remove it. The audit is off by default because it sends the output to the API, and it always uses the standard model tier, never the contributor tier that trades training use of the traffic.
 
 ## Three ways to hide something
 
@@ -248,7 +250,7 @@ open-redactor input.mp4 [--output out.mp4]
   --keep TRACK (repeatable)         --exclude TRACK (repeatable)
   --audio keep|mute|pitch          --pitch-factor 0.8
   --speech-pii                      --transcript transcript.json
-  --keep-metadata
+  --keep-metadata                   --location-audit
   --backend api|hosted|local        --provider sam|grounding-sam|yunet|owlv2
   --endpoint URL                    --api-key-env MODEL_API_KEY
   --no-cache                        --batch            --ui
@@ -294,6 +296,7 @@ You need ffmpeg and ffprobe on your PATH. From source: clone this repo and `pip 
 - `masks.py` padding, carry-forward, smoothing, and coverage reports
 - `pii.py`, `codes.py` the text and codes layers
 - `analytics.py`, `replace.py` severity, summaries, shadow audits, and generated stand-ins
+- `location_audit.py` the opt-in pixel-layer location estimate recorded in the summary
 - `api.py` the public Python integration API
 - `mcp_server.py`, `server.py`, `audit_gate.py` agent, HTTP, CI, and pre-commit surfaces
 

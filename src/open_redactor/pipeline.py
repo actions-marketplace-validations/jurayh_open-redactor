@@ -526,6 +526,7 @@ def run_pipeline(
     transcript_path: Optional[Path] = None,
     whisper_model: str = "base",
     keep_metadata: bool = False,
+    location_audit: bool = False,
 ) -> Dict[str, object]:
     """Run the full redaction pipeline and return a summary dict.
 
@@ -803,7 +804,17 @@ def run_pipeline(
                 "share_of_clip": round(max(1, last_frame - first_frame) / total_frames, 3) if total_frames else 0.0,
             }
         )
-    summary = build_summary(all_tracks, total_frames, audio_mode=audio_mode, shadow=shadow, kept_visible=left_visible, sam_mask_source=sam_mask_source, extra_elements=speech_elements + metadata_elements, metadata_info=metadata_info if meta_findings else None)
+    location_info = None
+    if location_audit and shadow:
+        from .location_audit import run_location_audit
+
+        location_info = run_location_audit(
+            frame=frames[total_frames // 2] if total_frames else None,
+            api_key_env=api_key_env,
+            endpoint=endpoint,
+            basis="one sampled frame of the source",
+        )
+    summary = build_summary(all_tracks, total_frames, audio_mode=audio_mode, shadow=shadow, kept_visible=left_visible, sam_mask_source=sam_mask_source, extra_elements=speech_elements + metadata_elements, metadata_info=metadata_info if meta_findings else None, location_info=location_info)
 
     if shadow:
         paths = write_summary_files(summary, output_path, shadow=True)
@@ -824,6 +835,7 @@ def run_pipeline(
             "objects": total_objects,
             "shadow": True,
             "preview": False,
+            "location_audit": location_info,
         }
 
     # Replace mode works per track so each kind gets its own stand-in
@@ -917,6 +929,8 @@ def run_pipeline(
         contact_path = output_path.with_suffix(".contact.png")
         make_contact_sheet(frames, merged_masks, contact_path)
         print(f"Contact sheet: {contact_path}")
+        if location_audit:
+            print("Location audit skipped in preview mode. Run the full clip to get the estimate.")
         print("Preview only. Run without --preview for the full clip.")
         return {
             "input": str(input_path),
@@ -953,6 +967,16 @@ def run_pipeline(
         make_contact_sheet(frames, merged_masks, contact_path)
         print(f"Contact sheet: {contact_path}")
 
+    if location_audit:
+        from .location_audit import run_location_audit
+
+        location_info = run_location_audit(
+            frame=render_frames[total_frames // 2] if total_frames else None,
+            api_key_env=api_key_env,
+            endpoint=endpoint,
+            basis="one sampled frame of the processed output",
+        )
+        summary["location_audit"] = location_info
     paths = write_summary_files(summary, output_path, shadow=False)
     print(summary_text(summary))
     print(f"Summary JSON: {paths['json']}")
@@ -967,4 +991,5 @@ def run_pipeline(
         "report": str(report_path) if report_path else None,
         "summary": str(paths["json"]),
         "preview": False,
+        "location_audit": location_info,
     }

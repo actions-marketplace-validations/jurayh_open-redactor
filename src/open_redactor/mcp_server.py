@@ -70,6 +70,7 @@ _OPTION_SCHEMA: dict[str, Any] = {
     "speech_pii": {"type": "boolean", "default": False, "description": "Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails."},
     "transcript_path": {"type": "string", "description": "Path to a Whisper JSON transcript with word timings to use for the speech layer instead of transcribing."},
     "keep_metadata": {"type": "boolean", "default": False, "description": "Keep source metadata (EXIF and container tags) in the output instead of stripping it."},
+    "location_audit": {"type": "boolean", "default": False, "description": "Estimate how locatable the processed output still is from its pixels with a geolocation model on the API (standard tier only), recorded in the summary with the cues the model used. Off by default because it sends the output to the API. Photos and videos only."},
     "quiet": {"type": "boolean", "default": False, "description": "Route pipeline progress output to the open_redactor logger instead of stdout."},
 }
 
