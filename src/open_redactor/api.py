@@ -72,12 +72,11 @@ class RedactionOptions:
             raise ValueError(f"Provider '{self.provider}' runs locally. Use backend 'local' or leave backend unset.")
         if self.provider == "sam" and self.backend == "local":
             raise ValueError("Provider 'sam' talks to a remote SAM 3.1 endpoint. Use backend 'api' or 'hosted', or provider 'grounding-sam', 'owlv2', or 'yunet' for a local run.")
-        if self.location_audit and self.local:
-            raise ValueError("location_audit sends the output to a model API estimator, so it cannot run with local=True. Drop one of them.")
-        if self.location_audit and self.backend == "local":
-            raise ValueError("location_audit sends the output to a model API estimator, so it cannot run on the local backend. Use backend 'api' or 'hosted'.")
-        if self.location_audit and self.provider in LOCAL_ONLY_PROVIDERS:
-            raise ValueError(f"location_audit needs the API estimator, but provider '{self.provider}' runs locally. Use provider 'sam' or leave provider unset.")
+        from .location_audit import validate_location_audit_combination
+
+        validate_location_audit_combination(
+            self.location_audit, local=self.local, backend=self.backend, provider=self.provider
+        )
         if self.strength <= 0:
             raise ValueError("strength must be positive")
         if self.mask_margin < 0:

@@ -87,7 +87,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--audio", choices=["keep", "mute", "pitch"], default="keep")
     parser.add_argument("--keep", action="append", default=None, help="Leave a named track visible, out of the audit. Can be repeated")
     parser.add_argument("--exclude", action="append", default=None, help="Drop a named track from the audit. Can be repeated")
-    parser.add_argument("--speech-pii", action="store_true", help="Also scan the audio for spoken card numbers, SSNs, phone numbers, and emails")
+    parser.add_argument("--speech-pii", action="store_true", help="Also scan the audio for spoken card numbers, SSNs, phone numbers, emails, and GPS coordinates")
     parser.add_argument("--transcript", default=None, help="Whisper JSON transcript with word timings for the speech layer")
     parser.add_argument("--keep-metadata", action="store_true", help="Treat source metadata as kept rather than stripped (audits report findings either way)")
     return parser

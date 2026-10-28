@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import base64
 import json
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +35,55 @@ except Exception:  # pragma: no cover
 from .sam_client import DEFAULT_ENDPOINT
 
 ESTIMATOR_MODEL = "muse-spark-1.3"
+
+# Providers that never leave the machine. A location audit sends media
+# to an API by definition, so it can never be combined with one of
+# these, with the local backend, or with local=True. The rule lives
+# here so the Python API, the CLI, and both pipelines enforce exactly
+# the same guard instead of drifting apart.
+LOCAL_ONLY_PROVIDERS = {"grounding-sam", "yunet", "owlv2"}
+
+MAX_CUES = 12
+
+
+def location_audit_conflict(
+    *,
+    local: bool = False,
+    backend: Optional[str] = None,
+    provider: Optional[str] = None,
+) -> Optional[str]:
+    """Why a location audit cannot run with this combination, or None."""
+    if local:
+        return (
+            "location_audit sends the output to a model API estimator, so it cannot run "
+            "with local=True. Drop one of them."
+        )
+    if backend == "local":
+        return (
+            "location_audit sends the output to a model API estimator, so it cannot run "
+            "on the local backend. Use backend 'api' or 'hosted'."
+        )
+    if provider in LOCAL_ONLY_PROVIDERS:
+        return (
+            f"location_audit needs the API estimator, but provider '{provider}' runs "
+            "locally. Use provider 'sam' or leave provider unset."
+        )
+    return None
+
+
+def validate_location_audit_combination(
+    enabled: bool,
+    *,
+    local: bool = False,
+    backend: Optional[str] = None,
+    provider: Optional[str] = None,
+) -> None:
+    """Raise ValueError when an enabled audit hits the local guard."""
+    if not enabled:
+        return
+    conflict = location_audit_conflict(local=local, backend=backend, provider=provider)
+    if conflict is not None:
+        raise ValueError(conflict)
 
 AUDIT_NOTE = (
     "Redaction reduces locatability, it does not remove it. This estimate is "
@@ -60,6 +110,30 @@ class LocationEstimate:
     confidence_25km: float  # 0..1, the model's stated probability
     cues: List[str] = field(default_factory=list)
     model: str = ESTIMATOR_MODEL
+
+    def __post_init__(self) -> None:
+        # The estimator's reply is untrusted input. A placement that is
+        # not a finite, in-range coordinate pair is not an estimate at
+        # all, and it must never reach a summary as if it were one.
+        self.latitude = float(self.latitude)
+        self.longitude = float(self.longitude)
+        self.confidence_25km = float(self.confidence_25km)
+        if not math.isfinite(self.latitude) or not -90.0 <= self.latitude <= 90.0:
+            raise ValueError(f"latitude out of range: {self.latitude!r}")
+        if not math.isfinite(self.longitude) or not -180.0 <= self.longitude <= 180.0:
+            raise ValueError(f"longitude out of range: {self.longitude!r}")
+        if not math.isfinite(self.confidence_25km) or not 0.0 <= self.confidence_25km <= 1.0:
+            raise ValueError(f"confidence out of range: {self.confidence_25km!r}")
+        if isinstance(self.cues, str):
+            self.cues = [self.cues]
+        cleaned: List[str] = []
+        for cue in self.cues or []:
+            if not isinstance(cue, str):
+                raise ValueError(f"cue is not a string: {cue!r}")
+            cue = cue.strip()
+            if cue:
+                cleaned.append(cue)
+        self.cues = cleaned[:MAX_CUES]
 
 
 def build_estimate_body(image_b64: str, media_type: str = "image/jpeg") -> dict:
@@ -91,6 +165,8 @@ def parse_estimate(payload: dict) -> LocationEstimate:
     else:
         parts: List[str] = []
         for item in payload.get("output", []) or []:
+            if not isinstance(item, dict):
+                continue
             for content in item.get("content", []) or []:
                 if isinstance(content, dict) and isinstance(content.get("text"), str):
                     parts.append(content["text"])
@@ -100,17 +176,76 @@ def parse_estimate(payload: dict) -> LocationEstimate:
         raise RuntimeError("the estimator replied without a JSON verdict")
     try:
         verdict = json.loads(text[start:end + 1])
-        confidence = float(verdict.get("confidence_25km", 0)) / 100.0
+        if not isinstance(verdict, dict):
+            raise ValueError("the verdict is not a JSON object")
+        country = verdict.get("country", "")
+        city = verdict.get("city", "")
+        if not isinstance(country, str) or not isinstance(city, str):
+            raise ValueError("country and city must be strings")
+        cues = verdict.get("cues", [])
+        if isinstance(cues, str):
+            cues = [cues]
+        if not isinstance(cues, list):
+            raise ValueError("cues must be a list of strings")
         return LocationEstimate(
             latitude=float(verdict["lat"]),
             longitude=float(verdict["lon"]),
-            country=str(verdict.get("country", "")),
-            city=str(verdict.get("city", "")),
-            confidence_25km=min(1.0, max(0.0, confidence)),
-            cues=[str(c) for c in verdict.get("cues", [])],
+            country=country,
+            city=city,
+            confidence_25km=float(verdict.get("confidence_25km", 0)) / 100.0,
+            cues=cues,
         )
     except (KeyError, TypeError, ValueError) as exc:
         raise RuntimeError(f"the estimator verdict could not be parsed: {exc}") from exc
+
+
+def pixels_jpeg_bytes(image_path: Path) -> bytes:
+    """Decode a photo and re-encode its pixels as a clean JPEG.
+
+    The audit is a pixels-only estimate, so the payload is built from
+    the decoded frame (orientation applied, as the pipelines decode it)
+    and never from the source file's bytes: no EXIF block, no container
+    tags, and no GPS metadata rides along, whatever the source format
+    or the --keep-metadata setting. The media type is then always
+    honestly image/jpeg.
+    """
+    from .image_pipeline import read_photo
+
+    frame = read_photo(Path(image_path))
+    return frame_jpeg_bytes(frame)
+
+
+def frame_jpeg_bytes(frame) -> bytes:
+    """Encode one BGR frame array as JPEG bytes."""
+    import cv2
+
+    ok, encoded = cv2.imencode(".jpg", frame)
+    if not ok:
+        raise RuntimeError("could not encode the image for the location audit")
+    return encoded.tobytes()
+
+
+def estimate_location_bytes(
+    image_bytes: bytes,
+    api_key: Optional[str],
+    endpoint: str = DEFAULT_ENDPOINT,
+    timeout: float = 120.0,
+) -> LocationEstimate:
+    """Place one JPEG image held in memory with the estimator."""
+    if httpx is None:
+        raise RuntimeError("httpx is required for the location audit. Install with pip install httpx")
+    if not api_key:
+        raise RuntimeError("no API key found for the location audit. Set the env var named by --api-key-env")
+    image_b64 = base64.b64encode(image_bytes).decode("ascii")
+    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
+    try:
+        with httpx.Client(timeout=timeout) as client:
+            resp = client.post(endpoint, json=build_estimate_body(image_b64, "image/jpeg"), headers=headers)
+            resp.raise_for_status()
+            payload = resp.json()
+    except Exception as exc:
+        raise RuntimeError(f"the estimator call failed: {exc}") from exc
+    return parse_estimate(payload)
 
 
 def estimate_location(
@@ -119,23 +254,13 @@ def estimate_location(
     endpoint: str = DEFAULT_ENDPOINT,
     timeout: float = 120.0,
 ) -> LocationEstimate:
-    """Place one image file with the estimator. Raises RuntimeError."""
-    if httpx is None:
-        raise RuntimeError("httpx is required for the location audit. Install with pip install httpx")
-    if not api_key:
-        raise RuntimeError("no API key found for the location audit. Set the env var named by --api-key-env")
-    suffix = image_path.suffix.lower()
-    media_type = "image/png" if suffix == ".png" else "image/jpeg"
-    image_b64 = base64.b64encode(image_path.read_bytes()).decode("ascii")
-    headers = {"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"}
-    try:
-        with httpx.Client(timeout=timeout) as client:
-            resp = client.post(endpoint, json=build_estimate_body(image_b64, media_type), headers=headers)
-            resp.raise_for_status()
-            payload = resp.json()
-    except Exception as exc:
-        raise RuntimeError(f"the estimator call failed: {exc}") from exc
-    return parse_estimate(payload)
+    """Place one image file with the estimator. Raises RuntimeError.
+
+    Only the file's decoded pixels are sent, re-encoded as JPEG (see
+    :func:`pixels_jpeg_bytes`); the file's own bytes and metadata are
+    never transmitted.
+    """
+    return estimate_location_bytes(pixels_jpeg_bytes(image_path), api_key, endpoint=endpoint, timeout=timeout)
 
 
 def summary_block(
@@ -161,7 +286,7 @@ def summary_block(
         "latitude": round(estimate.latitude, 4),
         "longitude": round(estimate.longitude, 4),
         "confidence_within_25km": round(estimate.confidence_25km, 2),
-        "cues": list(estimate.cues),
+        "cues": list(estimate.cues)[:MAX_CUES],
         "note": AUDIT_NOTE,
     }
 
@@ -200,8 +325,8 @@ def run_location_audit(
 ) -> dict:
     """Run the audit and return the summary block. Never raises.
 
-    Pass either an image file path or a BGR frame array (written to a
-    temporary JPEG). Failures come back as a failed block so the run
+    Pass either an image file path (only its decoded pixels are sent,
+    re-encoded as JPEG) or a BGR frame array. Failures come back as a failed block so the run
     that produced the media still completes and the summary records
     that no estimate exists.
     """
@@ -210,18 +335,14 @@ def run_location_audit(
         if not api_key:
             raise RuntimeError(f"no API key found. Set the env var named by --api-key-env ({api_key_env})")
         resolved_endpoint = endpoint or os.environ.get("OPEN_REDACTOR_ENDPOINT") or DEFAULT_ENDPOINT
+        # The key and the image leave the machine for this endpoint, so
+        # the destination is always named, the way the hosted SAM path
+        # already names its endpoint.
+        print(f"Location audit endpoint: {resolved_endpoint}")
         if image_path is not None:
             estimate = estimate_location(Path(image_path), api_key, endpoint=resolved_endpoint)
         elif frame is not None:
-            import tempfile
-
-            import cv2
-
-            with tempfile.TemporaryDirectory(prefix="open-redactor-location-") as tmp:
-                sample = Path(tmp) / "frame.jpg"
-                if not cv2.imwrite(str(sample), frame):
-                    raise RuntimeError("could not write the sampled frame for the location audit")
-                estimate = estimate_location(sample, api_key, endpoint=resolved_endpoint)
+            estimate = estimate_location_bytes(frame_jpeg_bytes(frame), api_key, endpoint=resolved_endpoint)
         else:
             raise RuntimeError("the location audit needs an image or a frame")
         return summary_block(estimate, basis)
