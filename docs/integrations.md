@@ -7,7 +7,7 @@ Open Redactor is built to sit inside other tools rather than become another dest
 | Python API | Apps, notebooks, workers, and workflow engines | `redact_media` and `audit_media` |
 | MCP server | Agent frameworks and desktop AI tools | `open-redactor-mcp` |
 | HTTP server | Team services and no-code automation | `open-redactor-server` |
-| GitHub Action | Repository checks and release media | `jurayh/open-redactor@v0.2.18` |
+| GitHub Action | Repository checks and release media | `jurayh/open-redactor@v0.2.19` |
 | Pre-commit hook | Stopping a risky video before it enters Git | `open-redactor-audit` |
 | Docker | CI, servers, and repeatable installs | The repo `Dockerfile` |
 | CLI | Shell scripts, OBS folders, ffmpeg workflows, Airflow, and cron | `open-redactor` |
@@ -55,17 +55,17 @@ Options can be passed as a `RedactionOptions` object, a plain dict, or keyword a
 | `local` | `False` | Legacy alias for `backend="local"` |
 | `api_key_env` | `MODEL_API_KEY` | Name of the environment variable holding the API key |
 | `use_cache` | `True` | Reuse cached SAM results for identical inputs |
-| `pii_text` | `False` | OCR sampled frames and hide verified card numbers, SSNs, phone numbers, and emails |
+| `pii_text` | `False` | OCR sampled frames and hide verified card numbers, SSNs, phone numbers, emails, and GPS coordinate stamps |
 | `codes` | `False` | Cover QR codes and barcodes with an opaque fill |
 | `sensitive` | `False` | Bundle switch: `pii_text` plus `codes`, and the speech layer when it can run |
 | `audio_mode` | `keep` | Video track handling: `keep`, `mute`, or `pitch`. For audio files it is the whole track mode |
 | `pitch_factor` | `0.8` | Pitch multiplier for `audio_mode="pitch"`, tempo preserved |
 | `keep` | none | Track keys or globs left visible while everything else is redacted |
 | `exclude` | none | Track keys or globs dropped as false positives |
-| `speech_pii` | `False` | Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails |
+| `speech_pii` | `False` | Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, emails, and GPS coordinates |
 | `transcript_path` | none | A Whisper JSON transcript to use instead of transcribing |
 | `keep_metadata` | `False` | Keep source metadata in the output instead of stripping and reporting it |
-| `location_audit` | `False` | Estimate how locatable the processed output still is from its pixels with a geolocation model on the API (standard tier only) and record the estimate and cues in the summary. Photos and videos only, never with a local backend or a local provider |
+| `location_audit` | `False` | Estimate how locatable the processed output still is from its pixels with a geolocation model on the API (standard tier only) and record the estimate and cues in the summary. The estimator receives re-encoded pixels only, never file bytes or metadata. Photos and videos only, never with a local backend or a local provider |
 | `quiet` | `False` | Route pipeline progress output to the `open_redactor` logger at debug level instead of stdout |
 
 Conflicting combinations fail fast with a message that says how to fix them. Local-only providers (`grounding-sam`, `yunet`, `owlv2`) reject the `api` and `hosted` backends, provider `sam` rejects the `local` backend, and `local=True` rejects a non-local `backend`.
@@ -149,7 +149,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: jurayh/open-redactor@v0.2.18
+      - uses: jurayh/open-redactor@v0.2.19
         env:
           MODEL_API_KEY: ${{ secrets.MODEL_API_KEY }}
         with:
@@ -175,7 +175,7 @@ Add this to `.pre-commit-config.yaml` to audit videos before they are committed:
 ```yaml
 repos:
   - repo: https://github.com/jurayh/open-redactor
-    rev: v0.2.18
+    rev: v0.2.19
     hooks:
       - id: open-redactor-audit
         args: [--fail-on=medium, --sensitive, --backend=api]

@@ -6,10 +6,13 @@ the kind dashcams and camera apps burn into a frame as an overlay.
 Card numbers are verified with the Luhn check so random long numbers
 do not get flagged. Coordinate pairs must carry at least four decimal
 places on both numbers and pass range checks, so prices, dimensions,
-and version strings do not get flagged. OCR is optional and lazy
-through pytesseract plus the tesseract binary. When OCR is not
-installed the scanner returns nothing with a clear message and never
-invents detections.
+and version strings do not get flagged. Pairs may use a dot or a comma
+as the decimal mark, carry hemisphere letters, degree signs, and label
+tokens (LAT, LON, GPS) between the numbers, and use whitespace, comma,
+semicolon, slash, or pipe separators. DMS forms are not matched. OCR
+is optional and lazy through pytesseract plus the tesseract binary.
+When OCR is not installed the scanner returns nothing with a clear
+message and never invents detections.
 """
 
 from __future__ import annotations
@@ -34,20 +37,43 @@ SSN_RE = re.compile(r"(?<!\d)(\d{3})-(\d{2})-(\d{4})(?!\d)")
 PHONE_RE = re.compile(r"(?<!\d)(?:\+?1[ .-]?)?\(?\d{3}\)?[ .-]\d{3}[ .-]\d{4}(?!\d)")
 EMAIL_RE = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 # Decimal coordinate pairs as printed by dashcam and camera overlays:
-# "-30.920099 146.96307E", "37.774929, -122.419418", "N 51.50722 W 0.12750".
-# Both numbers need at least four decimal places; _valid_coordinate_pair
-# then enforces latitude and longitude ranges in either order.
-GPS_PAIR_RE = re.compile(
-    r"(?<![\d.])"
-    r"([NSEW])?\s*([+-]?\d{1,3}\.\d{4,})\s*([NSEW])?"
-    r"\s*[, ]\s*"
-    r"([NSEW])?\s*([+-]?\d{1,3}\.\d{4,})\s*([NSEW])?"
-    r"(?![\d.])"
+# "-30.920099 146.96307E", "37.774929, -122.419418", "N 51.50722 W 0.12750",
+# "LAT 37.774929 LON -122.419418", and decimal-comma forms such as
+# "52,520008 13,404954". Both numbers need at least four decimal places;
+# _valid_coordinate_pair then enforces latitude and longitude ranges in
+# either order. The separator may be whitespace (spaces, tabs, newlines),
+# a comma, semicolon, slash, or pipe, with an optional LAT/LON/GPS label
+# token in the middle.
+_SIGN = r"[+\-−]?"
+_HEMI = r"[NSEW]"
+_SEPARATOR = (
+    r"(?:(?:\s*[,;/|:\-]\s*|\s+)"
+    r"(?:(?:LAT(?:ITUDE)?|LON(?:GITUDE)?|GPS)\b\s*[:.\-]?\s*)?)"
 )
 
 
+def _pair_pattern(decimal_mark: str) -> re.Pattern:
+    number = rf"{_SIGN}\d{{1,3}}{decimal_mark}\d{{4,}}"
+    # A suffix hemisphere letter must not be the first letter of the
+    # next word ("-122.419418 now" is not "...418 N"), hence the
+    # letter lookahead after each suffix group.
+    suffix = rf"({_HEMI}(?![A-Za-z]))?"
+    return re.compile(
+        rf"(?<![\d.,])"
+        rf"({_HEMI})?\s*({number})\s*°?\s*{suffix}"
+        rf"{_SEPARATOR}"
+        rf"({_HEMI})?\s*({number})\s*°?\s*{suffix}"
+        rf"(?![\d.,])",
+        re.IGNORECASE,
+    )
+
+
+GPS_PAIR_RE = _pair_pattern(r"\.")
+GPS_COMMA_PAIR_RE = _pair_pattern(r",")
+
+
 def _coordinate_value(number: str, hemi_before: str, hemi_after: str) -> float:
-    value = float(number)
+    value = float(number.replace("−", "-").replace(",", "."))
     hemi = (hemi_after or hemi_before or "").upper()
     if hemi in ("S", "W"):
         value = -abs(value)
@@ -70,6 +96,56 @@ def _valid_coordinate_pair(m: re.Match) -> bool:
     if abs(first) <= 90 and abs(second) <= 180:
         return True
     return abs(first) <= 180 and abs(second) <= 90
+
+
+def _gps_candidates(text: str) -> List[Tuple[int, int]]:
+    """All valid coordinate-pair spans in the text, overlaps included.
+
+    The scan restarts one character past each candidate's start, valid
+    or not. A plain finditer walk consumes a rejected candidate whole,
+    so a neighbouring decimal (an altitude readout, a decimal
+    timestamp) could swallow a real pair's latitude and hide the pair,
+    or a valid-but-incidental pair could claim the latitude and leave
+    the longitude exposed. Collecting every overlapping candidate and
+    merging the overlaps into one span keeps the whole run covered.
+    """
+    spans: List[Tuple[int, int]] = []
+    for pattern in (GPS_PAIR_RE, GPS_COMMA_PAIR_RE):
+        pos = 0
+        while pos < len(text):
+            m = pattern.search(text, pos)
+            if m is None:
+                break
+            # A prefix "hemisphere" glued to a word ("in 37.77...") is
+            # the word's last letter, not a hemisphere marker; the clean
+            # candidate starting at the number itself is found on the
+            # next pass.
+            glued = (
+                m.group(1)
+                and m.start() > 0
+                and text[m.start() - 1].isalpha()
+            )
+            if not glued and _valid_coordinate_pair(m):
+                spans.append((m.start(), m.end()))
+            pos = m.start() + 1
+    spans.sort()
+    merged: List[Tuple[int, int]] = []
+    for start, end in spans:
+        if merged and start < merged[-1][1]:
+            merged[-1] = (merged[-1][0], max(merged[-1][1], end))
+        else:
+            merged.append((start, end))
+    # Hit spans carry no surrounding whitespace, so OCR word mapping
+    # covers exactly the words the coordinates occupy.
+    trimmed: List[Tuple[int, int]] = []
+    for start, end in merged:
+        while start < end and text[start].isspace():
+            start += 1
+        while end > start and text[end - 1].isspace():
+            end -= 1
+        if start < end:
+            trimmed.append((start, end))
+    return trimmed
 
 
 def luhn_ok(digits: str) -> bool:
@@ -109,13 +185,13 @@ def find_pii_in_text(text: str) -> List[PiiHit]:
         if free(m.start(), m.end()):
             hits.append(PiiHit("ssn", m.group(0), m.start(), m.end()))
             taken.append((m.start(), m.end()))
-    for m in GPS_PAIR_RE.finditer(text):
+    for start, end in _gps_candidates(text):
         # Runs before the card pass: a coordinate pair is a run of digits
         # and spaces that a Luhn check could claim by chance, and the pair
         # is a location either way.
-        if _valid_coordinate_pair(m) and free(m.start(), m.end()):
-            hits.append(PiiHit("gps coordinates", m.group(0), m.start(), m.end()))
-            taken.append((m.start(), m.end()))
+        if free(start, end):
+            hits.append(PiiHit("gps coordinates", text[start:end], start, end))
+            taken.append((start, end))
     for m in CARD_RE.finditer(text):
         digits = re.sub(r"\D", "", m.group(0))
         if luhn_ok(digits) and free(m.start(), m.end()):

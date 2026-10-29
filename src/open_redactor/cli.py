@@ -8,6 +8,7 @@ import sys
 from pathlib import Path
 from typing import List, Optional
 
+from .location_audit import validate_location_audit_combination
 from .pipeline import run_pipeline
 from .presets import PRESETS, apply_preset
 from .sam_client import resolve_targets
@@ -32,14 +33,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--api-key-env", default="MODEL_API_KEY", help="Name the environment variable that holds the API key")
     p.add_argument("--preset", choices=sorted(PRESETS.keys()), default=None, help="Use a preset: family, street, screen-share, or documents")
     p.add_argument("--no-cache", action="store_true", help="Do not reuse cached SAM results")
-    p.add_argument("--pii-text", action="store_true", help="Also OCR sampled frames for card numbers, SSNs, phones, and emails and blur them")
+    p.add_argument("--pii-text", action="store_true", help="Also OCR sampled frames for card numbers, SSNs, phones, emails, and GPS coordinate stamps and blur them")
     p.add_argument("--codes", action="store_true", help="Also detect and cover QR codes and barcodes in sampled frames")
     p.add_argument("--sensitive", action="store_true", help="Turn on --pii-text and --codes together")
     p.add_argument("--shadow", action="store_true", help="Audit only: report what would be removed with severity, render nothing")
     p.add_argument("--keep", action="append", default=None, help="Leave a named track visible while everything else is redacted, for example --keep person:0. Track keys are printed in the coverage report. Can be repeated, globs allowed")
     p.add_argument("--exclude", action="append", default=None, help="Drop a named track from redaction as a false positive, for example --exclude person:1. Can be repeated, globs allowed")
     p.add_argument("--audio", choices=["keep", "mute", "pitch"], default="keep", help="Audio redaction: keep the original track, mute it, or pitch shift voices")
-    p.add_argument("--speech-pii", action="store_true", help="Transcribe the audio locally and mute spoken card numbers, SSNs, phone numbers, and emails")
+    p.add_argument("--speech-pii", action="store_true", help="Transcribe the audio locally and mute spoken card numbers, SSNs, phone numbers, emails, and GPS coordinates")
     p.add_argument("--keep-metadata", action="store_true", help="Keep source metadata (EXIF and container tags) in the output instead of stripping it")
     p.add_argument("--location-audit", action="store_true", help="Also estimate how locatable the processed output still is from its pixels with a geolocation model on the API, and record the estimate and the cues it used in the summary. Off by default because it sends the output (or one sampled frame of it) to the API. Photos and videos only")
     p.add_argument("--transcript", default=None, help="Use a Whisper JSON transcript with word timings for the speech layer instead of transcribing")
@@ -96,6 +97,7 @@ def write_batch_rollup(summary_paths: List[Path], dest_dir: Path) -> Path:
                 "elements_found": int(data.get("elements_found", 0)),
                 "severity_counts": counts,
                 "exposure_score": data.get("exposure_score"),
+                "location_audit": data.get("location_audit"),
             }
         )
     rollup = {
@@ -142,6 +144,11 @@ def process_one(
     keep_metadata: bool = False,
     location_audit: bool = False,
 ) -> int:
+    try:
+        validate_location_audit_combination(location_audit, local=local, backend=backend, provider=provider)
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
     out = output_path if output_path else default_output_path(input_path)
     if output_path is not None:
         out = unique_output_path(output_path)
@@ -197,6 +204,9 @@ def _process_photo_batch(input_path: Path, output_path: Path, targets: List[str]
     from .image_pipeline import run_image_pipeline
 
     try:
+        validate_location_audit_combination(
+            args.location_audit, local=args.local, backend=args.backend, provider=args.provider
+        )
         run_image_pipeline(
             input_path=input_path,
             output_path=output_path,
@@ -218,6 +228,9 @@ def _process_photo_batch(input_path: Path, output_path: Path, targets: List[str]
             location_audit=args.location_audit,
         )
         return 0
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
     except Exception as exc:
         print(f"Error: {exc}", file=sys.stderr)
         return 1
@@ -268,6 +281,14 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     if not args.input:
         parser.error("input is required unless you pass --ui")
+
+    try:
+        validate_location_audit_combination(
+            args.location_audit, local=args.local, backend=args.backend, provider=args.provider
+        )
+    except ValueError as exc:
+        print(f"Error: {exc}", file=sys.stderr)
+        return 2
 
     # Presets fill only values the user did not set explicitly
     if args.preset:

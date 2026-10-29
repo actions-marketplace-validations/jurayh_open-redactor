@@ -67,7 +67,7 @@ _OPTION_SCHEMA: dict[str, Any] = {
         "items": {"type": "string"},
         "description": "Track keys to drop from redaction as false positives, for example person:1. Globs allowed.",
     },
-    "speech_pii": {"type": "boolean", "default": False, "description": "Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, and emails."},
+    "speech_pii": {"type": "boolean", "default": False, "description": "Transcribe the audio and mute spoken card numbers, SSNs, phone numbers, emails, and GPS coordinates."},
     "transcript_path": {"type": "string", "description": "Path to a Whisper JSON transcript with word timings to use for the speech layer instead of transcribing."},
     "keep_metadata": {"type": "boolean", "default": False, "description": "Keep source metadata (EXIF and container tags) in the output instead of stripping it."},
     "location_audit": {"type": "boolean", "default": False, "description": "Estimate how locatable the processed output still is from its pixels with a geolocation model on the API (standard tier only), recorded in the summary with the cues the model used. Off by default because it sends the output to the API. Photos and videos only."},

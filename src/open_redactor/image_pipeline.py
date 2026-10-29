@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 import cv2
 import numpy as np
 
+from .location_audit import validate_location_audit_combination
 from .masks import build_per_frame_masks, select_tracks
 from .pipeline import apply_redaction_to_frame, apply_secure_fill
 from .sam_client import LocalSamStub, SamApiClient, SegmentationResult
@@ -146,6 +147,7 @@ def run_image_pipeline(
     shadow: bool = False,
     location_audit: bool = False,
 ) -> Dict[str, object]:
+    validate_location_audit_combination(location_audit, local=local, backend=backend, provider=provider)
     frame = read_photo(input_path)
     height, width = frame.shape[:2]
     shape = (height, width)
@@ -292,7 +294,7 @@ def run_image_pipeline(
             from .location_audit import run_location_audit
 
             location_info = run_location_audit(
-                image_path=input_path,
+                frame=frame,
                 api_key_env=api_key_env,
                 endpoint=endpoint,
                 basis="source photo",
@@ -411,7 +413,7 @@ def run_image_pipeline(
         from .location_audit import text_lines as location_text_lines
 
         location_info = run_location_audit(
-            image_path=output_path,
+            frame=redacted,
             api_key_env=api_key_env,
             endpoint=endpoint,
             basis="processed photo",

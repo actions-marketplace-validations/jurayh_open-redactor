@@ -28,7 +28,7 @@ PRESETS: dict[str, dict] = {
         "carry_frames": 6,
     },
     "location": {
-        "description": "House numbers, street signs, plates, and mailboxes that reveal where you live",
+        "description": "House numbers, street signs, plates, and mailboxes that reveal where you live. Pair with --pii-text for GPS stamps and printed addresses",
         "targets": ["street sign", "house number", "license plate", "mailbox"],
         "mode": "blur",
         "strength": 35,

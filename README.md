@@ -50,11 +50,11 @@ open-redactor clip.mp4 --preset family --mode pixelate  # re-render free, detect
 
 **Location clues.** Street signs, house numbers, plates, and mailboxes with the location preset.
 
-**Voices.** Audio stays, gets muted, or gets pitch shifted so speech remains but the speaker does not. And with `--speech-pii`, spoken card numbers, Social Security numbers, phone numbers, and emails are found in the transcript and muted in place, verified with the same Luhn and issuing rules as printed text.
+**Voices.** Audio stays, gets muted, or gets pitch shifted so speech remains but the speaker does not. And with `--speech-pii`, spoken card numbers, Social Security numbers, phone numbers, emails, and GPS coordinates are found in the transcript and muted in place, verified with the same Luhn and issuing rules as printed text.
 
 **Metadata.** A blurred photo can still carry GPS coordinates, timestamps, and device details in its EXIF, and a video can carry the same in its container tags. Every run inspects the source, strips that data from the output, and reports what it found, or keeps it only when you ask with `--keep-metadata`.
 
-**Location audit.** Redaction removes the objects you name. It cannot unbuild a skyline, and signage, architecture, vegetation, and road furniture can still place a photo after every named object is covered. With `--location-audit`, a geolocation model on the API tries to place the processed output (one sampled frame for video) and the summary records the estimate, the model's stated confidence, and the cues it used. The wording is deliberate: redaction reduces locatability, it does not remove it. The audit is off by default because it sends the output to the API, and it always uses the standard model tier, never the contributor tier that trades training use of the traffic.
+**Location audit.** Redaction removes the objects you name. It cannot unbuild a skyline, and signage, architecture, vegetation, and road furniture can still place a photo after every named object is covered. With `--location-audit`, a geolocation model on the API tries to place the processed output (one sampled frame for video, taken from the rendered file) and the summary records the estimate, the model's stated confidence, and the cues it used. The image the model sees is re-encoded from the processed pixels, so no EXIF or container metadata rides along. The wording is deliberate: redaction reduces locatability, it does not remove it. The audit is off by default because it sends the output to the API, and it always uses the standard model tier, never the contributor tier that trades training use of the traffic.
 
 ## Three ways to hide something
 

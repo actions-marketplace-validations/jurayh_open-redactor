@@ -60,6 +60,11 @@ def test_clean_speech_has_no_hits():
     assert find_speech_pii(words("we went to the park and played all afternoon")) == []
 
 
+def test_spoken_gps_coordinates_are_muted():
+    hits = find_speech_pii(words("my location is 37.774929 -122.419418 today"))
+    assert [h.kind for h in hits] == ["gps coordinates"]
+
+
 def test_margin_padding_applies():
     hits = find_speech_pii(words("four one five five five five two six seven one", start=5.0), margin=0.5)
     assert len(hits) == 1

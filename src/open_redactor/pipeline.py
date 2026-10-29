@@ -20,6 +20,7 @@ import cv2
 import numpy as np
 from PIL import Image, ImageDraw
 
+from .location_audit import validate_location_audit_combination
 from .masks import build_coverage_report, build_per_frame_masks, coverage_gaps, select_tracks
 from .sam_client import LocalSamStub, SamApiClient, SegmentationResult
 
@@ -535,6 +536,7 @@ def run_pipeline(
     Report mode writes a coverage text file next to the output. It defaults
     to on for normal runs and is always on in preview.
     """
+    validate_location_audit_combination(location_audit, local=local, backend=backend, provider=provider)
     info = probe_video(input_path)
     frames = extract_frames(input_path)
     total_frames = len(frames)
@@ -941,6 +943,7 @@ def run_pipeline(
             "contact_sheet": str(contact_path),
             "report": str(report_path) if report_path else None,
             "preview": True,
+            "location_audit": None,
         }
 
     # Render full clip
@@ -970,8 +973,15 @@ def run_pipeline(
     if location_audit:
         from .location_audit import run_location_audit
 
+        # The audit must see the processed output, so the sample comes
+        # from the rendered file on disk. render_frames still holds the
+        # decoded source frames (blur and pixelate are applied inside
+        # render_video from the masks), and sampling those would send
+        # the unredacted frame to the estimator under a processed label.
+        output_frames = extract_frames(output_path)
+        sample_frame = output_frames[len(output_frames) // 2] if output_frames else None
         location_info = run_location_audit(
-            frame=render_frames[total_frames // 2] if total_frames else None,
+            frame=sample_frame,
             api_key_env=api_key_env,
             endpoint=endpoint,
             basis="one sampled frame of the processed output",
