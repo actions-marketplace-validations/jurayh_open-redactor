@@ -28,7 +28,7 @@ For the simplest job, faces only, `--provider yunet` is the basic tier: OpenCV's
 
 API and hosted modes send the clip to the endpoint you chose. Local mode and the local page send nothing. SAM results are cached on your machine under your home cache folder so re-renders skip repeat uploads for the same clip and phrase. Use --no-cache to force a fresh pass. Output files are written next to your input with a redacted suffix and never overwrite the original.
 
-## Honest limits
+## Known limits
 
 Audio defaults to keep, so the original voices ship unless you choose otherwise. --audio mute removes the track entirely. --audio pitch shifts voices with pitch factor 0.8 by default while keeping tempo and duration, so speech stays understandable but no longer sounds like the real speaker. If pitch shifting fails the run writes no audio rather than leaking the original track.
 
